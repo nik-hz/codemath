@@ -11,3 +11,7 @@
 ## Setup
 
 Download the datasets and put them in the dataset/ dir in the root of the project. You can then run the code in utils to set up the json version.
+
+## General Notes
+
+-   The unsloth notebook seems to work on colab. You need a kaggle account to download the dataset with the first block of code. Otherwise, the prompt needs some work and more testing needs to be done. No evaluations yet.
