@@ -1,4 +1,4 @@
-# CodeMath project
+# Codemath project
 
 ## First test
 
@@ -6,8 +6,8 @@
 
 ## Datasets
 
--   For now we are using the python state changes from here: https://www.kaggle.com/datasets/frasergreenlee/python-state-changes
+-   For now, we are using the python state changes from here: https://www.kaggle.com/datasets/frasergreenlee/python-state-changes
 
 ## Setup
 
-Download the datasets and put them in a datasets/ dir in the root of the project. You can then run the code in utils to setup the json version.
+Download the datasets and put them in the dataset/ dir in the root of the project. You can then run the code in utils to set up the json version.
