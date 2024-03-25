@@ -1,2 +1,9 @@
 datasets/
 testing/kaggle.json
+*.zip
+*json*
+*csv
+*txt
+*model_save_path/
+*outputs/
+*tokenizer*
