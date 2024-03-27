@@ -43,7 +43,7 @@ model = FastLanguageModel.get_peft_model(
 # Prepare the dataset
 json_file_path = "./python_states_singleline.json"
 trace_prompt = """<s>[INST] Below is an input which contains the state of variables and code that acts upon these variables or not. Given the state and the code give the state after the code executes for each variable. Be very careful. You should clearly outline your intermediate steps and your final answer should be a newline with exactly the variables and their values. Here is the State and Code. {}
-Now generate the final state for each variable. Generate intermediate outputs.[/INST]{}</s>"""
+Now generate the final state for each variable. Generate intermediate outputs.[/INST] {}</s>"""
 
 def formatting_prompts_func(examples):
     inputs = examples["input"]
