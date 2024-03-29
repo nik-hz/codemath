@@ -2,7 +2,7 @@
 
 # Quickstart (For Grading)
 
-To train our model run
+After downloading data from Kaggle (below), train the model with
 
 ```
 python3 notebooks/mistral_codemath_4bit.py
