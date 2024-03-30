@@ -123,8 +123,8 @@ trainer = SFTTrainer(
     packing=False,  # Packing setting
     args=TrainingArguments(
         report_to="wandb",
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
+        per_device_train_batch_size=10,
+        per_device_eval_batch_size=10,
         gradient_accumulation_steps=4,
         warmup_steps=5,
         num_train_epochs=5,
@@ -140,7 +140,7 @@ trainer = SFTTrainer(
         output_dir="outputs",
         evaluation_strategy="steps",
         do_eval=True,
-        eval_accumulation_steps=64,
+        eval_accumulation_steps=10,
     ),
 )
 
