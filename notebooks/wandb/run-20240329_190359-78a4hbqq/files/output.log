@@ -1,0 +1,36 @@
+
+  0%|▍                                                                                                                                                                                                  | 1/420 [00:20<2:24:50, 20.74s/it]
+  0%|                                                                                                                                                                                                              | 0/94 [00:00<?, ?it/s]
+
+
+
+
+
+
+
+  File "/home/research/Columbia/codemath/notebooks/finetune_on_gsm8k.py", line 249, in <module>                                                                                                           | 20/94 [00:13<01:00,  1.22it/s]
+    trainer_stats = trainer.train()
+                    ^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/trl/trainer/sft_trainer.py", line 360, in train
+    output = super().train(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer.py", line 1624, in train
+    return inner_training_loop(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 422, in _fast_inner_training_loop
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer.py", line 2412, in _maybe_log_save_evaluate
+    metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer.py", line 3229, in evaluate
+    output = eval_loop(
+             ^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer.py", line 3444, in evaluation_loop
+    preds_host = logits if preds_host is None else nested_concat(preds_host, logits, padding_index=-100)
+                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer_pt_utils.py", line 125, in nested_concat
+    return torch_pad_and_concatenate(tensors, new_tensors, padding_index=padding_index)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer_pt_utils.py", line 90, in torch_pad_and_concatenate
+    result = tensor1.new_full(new_shape, padding_index)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 9.35 GiB. GPU 0 has a total capacity of 23.48 GiB of which 9.14 GiB is free. Including non-PyTorch memory, this process has 14.29 GiB memory in use. Of the allocated memory 13.84 GiB is allocated by PyTorch, and 143.95 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

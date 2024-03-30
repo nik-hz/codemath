@@ -19,10 +19,15 @@ import os
 # # Setup
 # torch.cuda.set_device(1)  # Explicitly setting the device to GPU 0
 
+# SET CUDA DEVICE BY SETTING TMUX ENV VARS
+# export CUDA_VISIBLE_DEVICES=0
+
 # INIT WANDB
-os.environ["WANDB_PROJECT"]="codemath"
-os.environ["WANDB_LOG_MODEL"]="true"
-os.environ["WANDB_WATCH"]="false"
+# os.environ["WANDB_PROJECT"]="codemath"
+# os.environ["WANDB_LOG_MODEL"]="true"
+# os.environ["WANDB_WATCH"]="false"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 
 max_seq_length = 2048
 # Load model and tokenizer
@@ -33,7 +38,19 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be False
 )
 
+# print("loading pretrained model and tokenizer")
+# model, tokenizer = FastLanguageModel.from_pretrained(
+#     model_name="model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval",
+#     max_seq_length=max_seq_length,
+#     dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
+#     load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be Fals
+# )
+
+# device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+
+# model.to(device)
 # Configure PEFT for the model
+# TODO can comment this out for finetune a pretrin model
 model = FastLanguageModel.get_peft_model(
     model,
     r=16,  # Configuration for PEFT, adjust as needed
@@ -49,42 +66,56 @@ model = FastLanguageModel.get_peft_model(
     loftq_config=None,
 )
 
+
 # Prepare the dataset
-json_file_path = "./python_states_singleline.json"
-trace_prompt = """<s>[INST] Below is an input which contains the state of variables and code that acts upon these variables or not. Given the state and the code give the state after the code executes for each variable. Be very careful. You should clearly outline your intermediate steps and your final answer should be a newline with exactly the variables and their values. Here is the State and Code. {}
-Now generate the final state for each variable. Generate intermediate outputs.[/INST] {}</s>"""
+json_file_path = "./train.jsonl"
+trace_prompt = """<s>[INST] {} [/INST] {}</s>"""
 
 def formatting_prompts_func(examples):
-    inputs = examples["input"]
-    outputs = examples["output"]
+    inputs = examples["question"]
+    outputs = examples["answer"]
     texts = []
     for input, output in zip(inputs, outputs):
         text = trace_prompt.format(input, output)
         texts.append(text)
     return {"text": texts}
 
-dataset = load_dataset("json", data_files=json_file_path, split="train")
+# dataset = load_dataset("json", data_files=json_file_path, split="train")
 
-# Subsetting to only 10% of the dataset
-dataset = dataset.shuffle(seed=42)  # Ensure a random subset is selected
-subset_size = int(0.05 * len(dataset))  # Calculate 5% of the dataset size
-dataset = dataset.select(range(subset_size))  # Select the first 5% of the dataset
+dataset = load_dataset("gsm8k", 'main', split='train')
+# dataset = dataset['train']
 
-dataset = dataset.train_test_split(test_size=0.1)["test"]  # Use test split for demonstration
-dataset_single_line = dataset.map(formatting_prompts_func, batched=True)
+split_ratio = 0.1 
+split_datasets = dataset.train_test_split(test_size=split_ratio)
+
+train_dataset = split_datasets["train"]
+eval_dataset = split_datasets["test"]
+
+# Example of manually selecting two examples for training and one for evaluation
+train_dataset = dataset.select([0, 20])  # Select the first two examples for training
+eval_dataset = dataset.select([2])      # Select the third example for evaluation
+
+
+# subset_size = int(0.05 * len(dataset))  # Calculate 5% of the dataset size
+# dataset = dataset.select(range(subset_size))  # Select the first 5% of the dataset
+
+# dataset = dataset.train_test_split(test_size=1)["test"]  # Use test split for demonstration
+train_dataset = train_dataset.map(formatting_prompts_func, batched=True)
+eval_dataset = eval_dataset.map(formatting_prompts_func, batched=True)
 
 # Setup Trainer
 trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
-    train_dataset=dataset_single_line,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
     dataset_text_field="text",
     max_seq_length=max_seq_length,
     dataset_num_proc=2,
     packing=False,  # Packing setting
     args=TrainingArguments(
-        report_to='wandb',
-        per_device_train_batch_size=45,
+        # report_to='wandb',
+        per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=5,
         num_train_epochs=5,
@@ -99,7 +130,7 @@ trainer = SFTTrainer(
         output_dir="outputs",
         evaluation_strategy="steps",
         do_eval=True,
-        eval_accumulation_steps=64,
+        eval_accumulation_steps=1,
     ),
 )
 
@@ -148,6 +179,7 @@ def make_hashable(obj):
         return obj
     
 def custom_metrics(preds):
+    print(preds)
     logits = torch.tensor(preds.predictions)
     labels = torch.tensor(preds.label_ids)
     batch_size, seq_length, vocab_size = logits.shape
@@ -213,8 +245,8 @@ def custom_metrics(preds):
             f1 = 0
         f1s.append(f1)
     f1_mean = torch.tensor(f1s).mean().item()
+    wandb.log({"perplexity": ppl.item(), "correct_tokens": correct_tokens.item(), "f1": f1_mean})
     return {"perplexity": ppl, "correct_tokens": correct_tokens.item(), "f1": f1_mean}
-
 
 
 
@@ -224,9 +256,11 @@ trainer_stats = trainer.train()
 wandb.finish()
 
 # Save the model and tokenizer after training
-model_save_path = "model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval"
-tokenizer_save_path = "tokenizer_save_path/mistral_7b_finetuned_with_mtoleseval"
+model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_with_eval"
+# model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_pretrain"
+# model_save_path = "model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval"
+# tokenizer_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_pretrain"
 model.save_pretrained(model_save_path)
-tokenizer.save_pretrained(tokenizer_save_path)
+tokenizer.save_pretrained(model_save_path)
 
 ## Finetune on gsm8k now

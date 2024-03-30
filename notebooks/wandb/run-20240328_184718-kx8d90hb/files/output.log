@@ -1,0 +1,27 @@
+
+
+ 20%|█████████████████████                                                                                    | 1/5 [00:12<00:48, 12.23s/it]
+
+ 40%|██████████████████████████████████████████                                                               | 2/5 [00:23<00:34, 11.53s/it]
+
+ 60%|███████████████████████████████████████████████████████████████                                          | 3/5 [00:34<00:22, 11.32s/it]
+ 60%|███████████████████████████████████████████████████████████████                                          | 3/5 [00:34<00:22, 11.32s/it]Traceback (most recent call last):
+  File "/home/research/Columbia/codemath/notebooks/finetune_on_gsm8k.py", line 218, in <module>
+    trainer_stats = trainer.train()
+                    ^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/trl/trainer/sft_trainer.py", line 360, in train
+    output = super().train(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer.py", line 1624, in train
+    return inner_training_loop(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 354, in _fast_inner_training_loop
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/transformers/trainer.py", line 2911, in training_step
+    self.accelerator.backward(loss)
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/accelerate/accelerator.py", line 2001, in backward
+    loss.backward(**kwargs)
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/torch/_tensor.py", line 522, in backward
+    torch.autograd.backward(
+  File "/home/research/.conda/envs/torch/lib/python3.11/site-packages/torch/autograd/__init__.py", line 266, in backward
+    Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt
