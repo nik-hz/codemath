@@ -1,5 +1,13 @@
 # Codemath project
 
+# Quickstart (For Grading)
+
+After downloading data from Kaggle (below), train the model with
+
+```
+python3 notebooks/mistral_codemath_4bit.py
+```
+
 ## First test
 
 -   Set as seq2seq task. Given state and code the model should predict the output. I will run the tests on mistral in ft1 using this approach
