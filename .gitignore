@@ -7,4 +7,5 @@ testing/kaggle.json
 *model_save_path/
 *outputs/
 *tokenizer*
-*wandb
+*wandb/
+
