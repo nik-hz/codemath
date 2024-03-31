@@ -36,6 +36,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     max_seq_length=max_seq_length,
     dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
     load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be False
+    device_map={"": 0},
 )
 
 # print("loading pretrained model and tokenizer")
@@ -168,8 +169,8 @@ def str_to_objs(input_str: str):
             literal_value = literal_eval(value_str)  # safe eval
             value = make_hashable(literal_value)
             objs[key] = value
-        except ValueError:
-            objs[key] = "NONLITERAL_STRING"
+        except (SyntaxError, ValueError) as e:
+            objs[key] = "<INVALID_PYTHON>"
     return objs
 
 
