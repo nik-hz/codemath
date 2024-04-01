@@ -1,4 +1,3 @@
-# Import necessary libraries
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
 from unsloth import FastLanguageModel
@@ -9,76 +8,72 @@ import wandb
 import os
 from collections import Counter
 import numpy as np
+from transformers import AdamW
+from torch.utils.data import DataLoader
 
-# Mistral 7B Finetune on Python Single Line Dataset
-# print(torch.version.cuda)
-
-# print("Available CUDA devices:", torch.cuda.device_count())
-# for i in range(torch.cuda.device_count()):
-#     print(f"Device {i}: {torch.cuda.get_device_name(i)} with {torch.cuda.mem_get_info(i)[1]} total memory")
-
-# # Setup
-# torch.cuda.set_device(1)  # Explicitly setting the device to GPU 0
-
-# SET CUDA DEVICE BY SETTING TMUX ENV VARS
-# export CUDA_VISIBLE_DEVICES=0
-
-# INIT WANDB
-os.environ["WANDB_PROJECT"] = "codemath"
-os.environ["WANDB_LOG_MODEL"] = "true"
-os.environ["WANDB_WATCH"] = "false"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
-
+# WANDB
+# os.environ["WANDB_PROJECT"] = "codemath"
+# os.environ["WANDB_LOG_MODEL"] = "true"
+# os.environ["WANDB_WATCH"] = "false"
+# FILE CONFIGS CHANGE SETTINGS HERE
+PRETRAINED_MODEL = False
 max_seq_length = 2048
-# Load model and tokenizer
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name="unsloth/mistral-7b",
-    max_seq_length=max_seq_length,
-    dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-    load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be False
-)
-
-# print("loading pretrained model and tokenizer")
-# model, tokenizer = FastLanguageModel.from_pretrained(
-#     model_name="model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval",
-#     max_seq_length=max_seq_length,
-#     dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-#     load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be Fals
-# )
-
-# device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-
-# model.to(device)
-# Configure PEFT for the model
-# TODO can comment this out for finetune a pretrin model
-model = FastLanguageModel.get_peft_model(
-    model,
-    r=16,  # Configuration for PEFT, adjust as needed
-    target_modules=[
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "o_proj",
-        "gate_proj",
-        "up_proj",
-        "down_proj",
-    ],
-    lora_alpha=16,
-    lora_dropout=0,
-    bias="none",
-    use_gradient_checkpointing=True,
-    random_state=3407,
-    use_rslora=False,
-    loftq_config=None,
-)
-
-
-# Prepare the dataset
-json_file_path = "./train.jsonl" # gsm8k dataset
+json_file_path = "./train.jsonl"  # gsm8k dataset
 trace_prompt = """<s>[INST] {} [/INST] {}</s>"""
+model_save_path = "model_save_path/mistral_7b_pretrain_trace_finetuned_gsm8k_with_eval"
+# model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_with_eval"
+# export CUDA_VISIBLE_DEVICES=1
+
+wandb.init(
+    project="codemath",
+    config={
+        "pretrained": PRETRAINED_MODEL,
+        "architecture": "Mistral 7B",
+        "dataset": "trace python and gsm8K" if PRETRAINED_MODEL else "gsm8k only",
+        "epochs": 5,
+    },
+)
 
 
+# LOAD IN MODEL DEPENDING ON FLAG
+if PRETRAINED_MODEL:
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name="unsloth/mistral-7b",
+        max_seq_length=max_seq_length,
+        dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
+        load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be False
+    )
+
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r=16,  # Configuration for PEFT, adjust as needed
+        target_modules=[
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ],
+        lora_alpha=16,
+        lora_dropout=0,
+        bias="none",
+        use_gradient_checkpointing=True,
+        random_state=3407,
+        use_rslora=False,
+        loftq_config=None,
+    )
+else:
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name="model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval",
+        max_seq_length=max_seq_length,
+        dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
+        load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be Fals
+    )
+
+
+# SETUP FUNCTIONS
 def formatting_prompts_func(examples):
     inputs = examples["question"]
     outputs = examples["answer"]
@@ -89,69 +84,19 @@ def formatting_prompts_func(examples):
     return {"text": texts}
 
 
-# dataset = load_dataset("json", data_files=json_file_path, split="train")
-
+# LOAD IN DATASET AND TRAIN EVAL SPLIT
 dataset = load_dataset("gsm8k", "main", split="train")
-# dataset = dataset['train']
-
 split_ratio = 0.05
 split_datasets = dataset.train_test_split(test_size=split_ratio)
-
 train_dataset = split_datasets["train"]
 eval_dataset = split_datasets["test"]
-
-# Example of manually selecting two examples for training and one for evaluation
-# train_dataset = dataset.select([0, 20])  # Select the first two examples for training
-# eval_dataset = dataset.select([2])  # Select the third example for evaluation
-
-
-# subset_size = int(0.05 * len(dataset))  # Calculate 5% of the dataset size
-# dataset = dataset.select(range(subset_size))  # Select the first 5% of the dataset
-
-# dataset = dataset.train_test_split(test_size=1)["test"]  # Use test split for demonstration
 train_dataset = train_dataset.map(formatting_prompts_func, batched=True)
 eval_dataset = eval_dataset.map(formatting_prompts_func, batched=True)
-
-# Setup Trainer
-trainer = SFTTrainer(
-    model=model,
-    tokenizer=tokenizer,
-    train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
-    dataset_text_field="text",
-    max_seq_length=max_seq_length,
-    dataset_num_proc=2,
-    packing=False,  # Packing setting
-    args=TrainingArguments(
-        report_to="wandb",
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        gradient_accumulation_steps=4,
-        warmup_steps=5,
-        num_train_epochs=5,
-        learning_rate=2e-4,
-        fp16=not torch.cuda.is_bf16_supported(),
-        bf16=torch.cuda.is_bf16_supported(),
-        logging_steps=1,
-        optim="adamw_8bit",
-        weight_decay=0.01,
-        lr_scheduler_type="constant",  # don't want to decay this for now
-        # lr_scheduler_type="linear", # don't want to decay this for now
-        seed=3407,
-        output_dir="outputs",
-        evaluation_strategy="steps",
-        eval_steps=5,
-        do_eval=True,
-        # eval_accumulation_steps=50,
-    ),
-)
+# train_dataset = train_dataset.select([0, 20])
+# eval_dataset = eval_dataset.select([2])
 
 
-# TODO can cut this out, we need to compare token for token
-
-
-# TODO add a function which compares the final output should be denoted by ####
-# newlines represent one logical step, so they are important as well
+# EVAL LOGIC
 def calculate_token_level_f1(prediction_tokens, reference_tokens):
     """
     Calculate precision, recall, and F1 score based on token overlap.
@@ -273,18 +218,42 @@ def custom_metrics_gsm8k(preds):
     }
 
 
-# Start training
-trainer.compute_metrics = custom_metrics_gsm8k
-trainer_stats = trainer.train()
-wandb.finish()
+# TRAINING ONLY RUN TO SAVE MODEL FOR LATER TESTING
+trainer = SFTTrainer(
+    model=model,
+    tokenizer=tokenizer,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
+    dataset_text_field="text",
+    max_seq_length=max_seq_length,
+    dataset_num_proc=2,
+    packing=False,  # Packing setting
+    args=TrainingArguments(
+        report_to="wandb",
+        per_device_train_batch_size=30,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=4,
+        warmup_steps=5,
+        num_train_epochs=5,
+        learning_rate=2e-4,
+        fp16=not torch.cuda.is_bf16_supported(),
+        bf16=torch.cuda.is_bf16_supported(),
+        logging_steps=1,
+        optim="adamw_8bit",
+        weight_decay=0.01,
+        lr_scheduler_type="constant",  # don't want to decay this for now
+        # lr_scheduler_type="linear", # don't want to decay this for now
+        seed=3407,
+        output_dir="outputs",
+        evaluation_strategy="steps",
+        eval_steps=5,
+        do_eval=True,
+        eval_accumulation_steps=50,
+    ),
+)
 
-# Save the model and tokenizer after training
-model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_with_eval"
-# model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_pretrain"
-# model_save_path = "model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval"
-# tokenizer_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_pretrain"
+trainer.compute_metrics = custom_metrics_gsm8k
+trainer.train()
 model.save_pretrained(model_save_path)
 tokenizer.save_pretrained(model_save_path)
-
-
-## Finetune on gsm8k now
+wandb.finish()
