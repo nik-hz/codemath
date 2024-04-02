@@ -10,18 +10,28 @@ from collections import Counter
 import numpy as np
 from transformers import AdamW
 from torch.utils.data import DataLoader
+import re
 
 # WANDB
 # os.environ["WANDB_PROJECT"] = "codemath"
 # os.environ["WANDB_LOG_MODEL"] = "true"
 # os.environ["WANDB_WATCH"] = "false"
+os.environ["WANDB_MODE"]="offline"
 # FILE CONFIGS CHANGE SETTINGS HERE
-PRETRAINED_MODEL = False
+PRETRAINED_MODEL = True
+PRETRAIN = False
 max_seq_length = 2048
-json_file_path = "./train.jsonl"  # gsm8k dataset
-trace_prompt = """<s>[INST] {} [/INST] {}</s>"""
-model_save_path = "model_save_path/mistral_7b_pretrain_trace_finetuned_gsm8k_with_eval"
-# model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_with_eval"
+json_file_path = "./python_states_singleline.json"
+trace_prompt_trace = """<s>[INST] Below is an input which contains the state of variables and code that acts upon these variables or not. Given the state and the code give the state after the code executes for each variable. Be very careful. You should clearly outline your intermediate steps and your final answer should be a newline with exactly the variables and their values. Here is the State and Code. {}
+Now generate the final state for each variable. Generate intermediate outputs.[/INST] {}</s>"""
+trace_prompt_gsm8k = """<s>[INST] {} [/INST] {}</s>"""
+trace_prompt = trace_prompt_trace if PRETRAIN else trace_prompt_gsm8k
+model_save_path = (
+    "model_save_path/mistral_7b_pretrain_trace_finetuned_gsm8k_with_eval"
+    if PRETRAINED_MODEL
+    else "model_save_path/mistral_7b_finetuned_gsm8k_with_eval"
+)
+
 # export CUDA_VISIBLE_DEVICES=1
 
 wandb.init(
@@ -37,6 +47,13 @@ wandb.init(
 
 # LOAD IN MODEL DEPENDING ON FLAG
 if PRETRAINED_MODEL:
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name="model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval",
+        max_seq_length=max_seq_length,
+        dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
+        load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be Fals
+    )
+else:
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name="unsloth/mistral-7b",
         max_seq_length=max_seq_length,
@@ -64,13 +81,6 @@ if PRETRAINED_MODEL:
         use_rslora=False,
         loftq_config=None,
     )
-else:
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name="model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval",
-        max_seq_length=max_seq_length,
-        dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-        load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be Fals
-    )
 
 
 # SETUP FUNCTIONS
@@ -79,7 +89,7 @@ def formatting_prompts_func(examples):
     outputs = examples["answer"]
     texts = []
     for input, output in zip(inputs, outputs):
-        text = trace_prompt.format(input, output)
+        text = trace_prompt_gsm8k.format(input, output)
         texts.append(text)
     return {"text": texts}
 
@@ -92,8 +102,8 @@ train_dataset = split_datasets["train"]
 eval_dataset = split_datasets["test"]
 train_dataset = train_dataset.map(formatting_prompts_func, batched=True)
 eval_dataset = eval_dataset.map(formatting_prompts_func, batched=True)
-# train_dataset = train_dataset.select([0, 20])
-# eval_dataset = eval_dataset.select([2])
+train_dataset = train_dataset.select([0, 20])
+eval_dataset = eval_dataset.select([2])
 
 
 # EVAL LOGIC
@@ -112,6 +122,39 @@ def calculate_token_level_f1(prediction_tokens, reference_tokens):
     f1 = (2 * precision * recall) / (precision + recall)
 
     return precision, recall, f1
+
+
+def correct_solution(prediction_str, reference_str):
+    """
+    Compare the final numerical output of the model with the reference tokens.
+
+    Args:
+    - prediction_tokens: List of token IDs representing the model's prediction.
+    - reference_tokens: List of token IDs representing the reference output.
+
+    Returns:
+    - 1 if the final numerical output of the model matches the reference tokens exactly, else 0.
+    """
+    # prediction_str = tokenizer.decode(prediction_tokens, skip_special_tokens=True)
+    # reference_str = tokenizer.decode(reference_tokens, skip_special_tokens=True)
+
+    prediction_lines = prediction_str.strip().split("\n")
+    reference_lines = reference_str.strip().split("\n")
+
+    # print(prediction_lines)
+    # print(reference_lines)
+
+    last_prediction_line = prediction_lines[-1].strip()
+    last_reference_line = reference_lines[-1].strip()
+
+    print("predicted ",last_prediction_line)
+    print("reference ",last_reference_line)
+    print(last_prediction_line== last_reference_line)
+
+    if last_prediction_line== last_reference_line:
+        return 1
+    else:
+        return 0
 
 
 def custom_metrics_gsm8k(preds):
@@ -151,6 +194,7 @@ def custom_metrics_gsm8k(preds):
     f1_scores = []
     precision_scores = []
     recall_scores = []
+    solution_scores = []
 
     for i in range(batch_size):
         unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][
@@ -193,6 +237,9 @@ def custom_metrics_gsm8k(preds):
         pred_output_str = tokenizer.decode(pred_output_tokens)
 
         precision, recall, f1 = calculate_token_level_f1(pred_output_str, gt_output_str)
+        
+        correct = correct_solution(pred_output_str, gt_output_str)
+        solution_scores.append(correct)
 
         f1_scores.append(f1)
         precision_scores.append(precision)
@@ -201,12 +248,14 @@ def custom_metrics_gsm8k(preds):
     mean_f1 = np.mean(f1_scores) if f1_scores else 0
     mean_precision = np.mean(precision_scores) if precision_scores else 0
     mean_recall = np.mean(recall_scores) if recall_scores else 0
+    solve_rate = np.mean(solution_scores) if solution_scores else 0
 
     wandb.log(
         {
             "perplexity": ppl.item(),
             "correct_tokens": correct_tokens.item(),
             "f1": mean_f1,
+            "solve_rate": solve_rate,
         }
     )
     return {
@@ -215,6 +264,7 @@ def custom_metrics_gsm8k(preds):
         "f1": mean_f1,
         "mean_precision": mean_precision,
         "mean_recall": mean_recall,
+        "solve_rate":solve_rate,
     }
 
 
@@ -230,7 +280,7 @@ trainer = SFTTrainer(
     packing=False,  # Packing setting
     args=TrainingArguments(
         report_to="wandb",
-        per_device_train_batch_size=30,
+        per_device_train_batch_size=40,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=5,
@@ -246,7 +296,7 @@ trainer = SFTTrainer(
         seed=3407,
         output_dir="outputs",
         evaluation_strategy="steps",
-        eval_steps=5,
+        eval_steps=1,
         do_eval=True,
         eval_accumulation_steps=50,
     ),
