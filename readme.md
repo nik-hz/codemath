@@ -2,6 +2,12 @@
 
 # Quickstart (For Grading)
 
+Setup to add in missing dirs
+```
+mkdir notebooks/model_save_path
+mkdir notebooks/outputs
+```
+
 After downloading data from Kaggle (below), train the model with
 
 ```
