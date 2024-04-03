@@ -7,7 +7,8 @@ from trl import SFTTrainer
 from ast import literal_eval
 import wandb
 import os
-
+from collections import Counter
+import numpy as np
 
 # Mistral 7B Finetune on Python Single Line Dataset
 # print(torch.version.cuda)
@@ -75,7 +76,7 @@ model = FastLanguageModel.get_peft_model(
 
 
 # Prepare the dataset
-json_file_path = "./train.jsonl"
+json_file_path = "./train.jsonl" # gsm8k dataset
 trace_prompt = """<s>[INST] {} [/INST] {}</s>"""
 
 
@@ -94,7 +95,7 @@ def formatting_prompts_func(examples):
 dataset = load_dataset("gsm8k", "main", split="train")
 # dataset = dataset['train']
 
-split_ratio = 0.1
+split_ratio = 0.05
 split_datasets = dataset.train_test_split(test_size=split_ratio)
 
 train_dataset = split_datasets["train"]
@@ -124,8 +125,8 @@ trainer = SFTTrainer(
     packing=False,  # Packing setting
     args=TrainingArguments(
         report_to="wandb",
-        per_device_train_batch_size=10,
-        per_device_eval_batch_size=10,
+        per_device_train_batch_size=4,
+        per_device_eval_batch_size=4,
         gradient_accumulation_steps=4,
         warmup_steps=5,
         num_train_epochs=5,
@@ -140,58 +141,23 @@ trainer = SFTTrainer(
         seed=3407,
         output_dir="outputs",
         evaluation_strategy="steps",
+        eval_steps=5,
         do_eval=True,
-        eval_accumulation_steps=10,
+        # eval_accumulation_steps=50,
     ),
 )
 
 
-def str_to_objs(input_str: str):
+# TODO can cut this out, we need to compare token for token
+
+
+# TODO add a function which compares the final output should be denoted by ####
+# newlines represent one logical step, so they are important as well
+def calculate_token_level_f1(prediction_tokens, reference_tokens):
     """
-    converts a string to a list of objects
-    input_str: str
-        Must be a string of the form 'i = 4; p = [0, 1, 1, 2, 5];'
-    returns: list
+    Calculate precision, recall, and F1 score based on token overlap.
     """
-    items = [x.strip() for x in input_str.split(";")]
-    objs = dict()
-    for item in items:
-        try:
-            key, value_str = item.split("=")
-            key = key.strip()
-        except:
-            continue  # no key found
-        try:
-            value_str = value_str.strip()
 
-            # quick and dirty object conversion to make all literals hashable
-            # TODO: create a hashable class for dicts and lists
-            literal_value = literal_eval(value_str)  # safe eval
-            value = make_hashable(literal_value)
-            objs[key] = value
-        except (SyntaxError, ValueError) as e:
-            objs[key] = "<INVALID_PYTHON>"
-    return objs
-
-
-def make_hashable(obj):
-    if isinstance(obj, dict):
-        # Convert dict to a sorted tuple of key-value pairs, making keys/values hashable recursively
-        return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
-    if isinstance(obj, set):
-        return frozenset(obj)
-    if isinstance(obj, list):
-        return tuple(obj)
-    # recursion case
-    elif isinstance(obj, list):
-        # Convert lists to tuples
-        return tuple(make_hashable(item) for item in obj)
-    else:
-        # Assume the object is hashable (e.g., numbers, strings, tuples)
-        return obj
-
-
-def custom_metrics(preds):
     logits = torch.tensor(preds.predictions)
     labels = torch.tensor(preds.label_ids)
 
@@ -213,7 +179,7 @@ def custom_metrics(preds):
 
     nll = -torch.log(p_true_tokens)
     mean_nll = nll.mean()
-    ppl = torch.exp(mean_nll)
+    ppl = torch.exp(mean_nll)  # perplexity
 
     # compute percentage of correct tokens
     correct_tokens = (
@@ -223,7 +189,11 @@ def custom_metrics(preds):
     )
 
     pred_max_labels = shift_logits.argmax(-1).view(batch_size, -1)
-    f1s = []
+
+    f1_scores = []
+    precision_scores = []
+    recall_scores = []
+
     for i in range(batch_size):
         unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][
             :-1
@@ -250,9 +220,6 @@ def custom_metrics(preds):
             pred_output_tokens_masked != -100
         ]
 
-        # TODO Error for nothing generated occured here
-        # first_pred_output_stop_idx = torch.where(pred_output_tokens_unmasked == tokenizer.eos_token_id)[0][0]
-
         eos_token_indices = torch.where(
             pred_output_tokens_unmasked == tokenizer.eos_token_id
         )[0]
@@ -267,35 +234,34 @@ def custom_metrics(preds):
         gt_output_str = tokenizer.decode(gt_output_tokens)
         pred_output_str = tokenizer.decode(pred_output_tokens)
 
-        # compare gt/preds interpreted in python
-        gt_state = str_to_objs(gt_output_str)
-        pred_state = str_to_objs(pred_output_str)
-        # compute f1 for values in the two states
-        gt_vars = set(gt_state.items())
-        pred_vars = set(pred_state.items())
-        try:
-            precision = len(gt_vars.intersection(pred_vars)) / len(pred_vars)
-            recall = len(gt_vars.intersection(pred_vars)) / len(gt_vars)
-            f1 = 2 * precision * recall / (precision + recall)
-        except ZeroDivisionError:
-            f1 = 0
-        f1s.append(f1)
-    # f1_mean = torch.tensor(f1s).mean().item()
-    # TODO Fix typing issue
-    f1_mean = torch.tensor(f1s).float().mean().item()
+        precision, recall, f1 = calculate_token_level_f1(pred_output_str, gt_output_str)
+
+        f1_scores.append(f1)
+        precision_scores.append(precision)
+        recall_scores.append(recall)
+
+    mean_f1 = np.mean(f1_scores) if f1_scores else 0
+    mean_precision = np.mean(precision_scores) if precision_scores else 0
+    mean_recall = np.mean(recall_scores) if recall_scores else 0
 
     wandb.log(
         {
             "perplexity": ppl.item(),
             "correct_tokens": correct_tokens.item(),
-            "f1": f1_mean,
+            "f1": mean_f1,
         }
     )
-    return {"perplexity": ppl, "correct_tokens": correct_tokens.item(), "f1": f1_mean}
+    return {
+        "perplexity": ppl,
+        "correct_tokens": correct_tokens.item(),
+        "f1": mean_f1,
+        "mean_precision": mean_precision,
+        "mean_recall": mean_recall,
+    }
 
 
 # Start training
-trainer.compute_metrics = custom_metrics
+trainer.compute_metrics = custom_metrics_gsm8k
 trainer_stats = trainer.train()
 wandb.finish()
 
@@ -306,5 +272,6 @@ model_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_with_eval"
 # tokenizer_save_path = "model_save_path/mistral_7b_finetuned_gsm8k_pretrain"
 model.save_pretrained(model_save_path)
 tokenizer.save_pretrained(model_save_path)
+
 
 ## Finetune on gsm8k now
