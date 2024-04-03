@@ -16,7 +16,7 @@ import re
 # os.environ["WANDB_PROJECT"] = "codemath"
 # os.environ["WANDB_LOG_MODEL"] = "true"
 # os.environ["WANDB_WATCH"] = "false"
-os.environ["WANDB_MODE"]="offline"
+# os.environ["WANDB_MODE"]="offline"
 # FILE CONFIGS CHANGE SETTINGS HERE
 PRETRAINED_MODEL = True
 PRETRAIN = False
@@ -96,14 +96,15 @@ def formatting_prompts_func(examples):
 
 # LOAD IN DATASET AND TRAIN EVAL SPLIT
 dataset = load_dataset("gsm8k", "main", split="train")
+dataset = dataset.train_test_split(train_size=0.5)["train"]
 split_ratio = 0.05
 split_datasets = dataset.train_test_split(test_size=split_ratio)
 train_dataset = split_datasets["train"]
 eval_dataset = split_datasets["test"]
 train_dataset = train_dataset.map(formatting_prompts_func, batched=True)
 eval_dataset = eval_dataset.map(formatting_prompts_func, batched=True)
-train_dataset = train_dataset.select([0, 20])
-eval_dataset = eval_dataset.select([2])
+# train_dataset = train_dataset.select([0, 20])
+# eval_dataset = eval_dataset.select([2])
 
 
 # EVAL LOGIC
@@ -147,9 +148,9 @@ def correct_solution(prediction_str, reference_str):
     last_prediction_line = prediction_lines[-1].strip()
     last_reference_line = reference_lines[-1].strip()
 
-    print("predicted ",last_prediction_line)
-    print("reference ",last_reference_line)
-    print(last_prediction_line== last_reference_line)
+    # print("predicted ",last_prediction_line)
+    # print("reference ",last_reference_line)
+    # print(last_prediction_line== last_reference_line)
 
     if last_prediction_line== last_reference_line:
         return 1
@@ -296,7 +297,7 @@ trainer = SFTTrainer(
         seed=3407,
         output_dir="outputs",
         evaluation_strategy="steps",
-        eval_steps=1,
+        eval_steps=5,
         do_eval=True,
         eval_accumulation_steps=50,
     ),
