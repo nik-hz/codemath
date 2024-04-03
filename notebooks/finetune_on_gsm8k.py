@@ -37,6 +37,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     max_seq_length=max_seq_length,
     dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
     load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be False
+    device_map={"": 0},
 )
 
 # print("loading pretrained model and tokenizer")
@@ -156,21 +157,7 @@ def calculate_token_level_f1(prediction_tokens, reference_tokens):
     """
     Calculate precision, recall, and F1 score based on token overlap.
     """
-    common_token_count = Counter(prediction_tokens) & Counter(reference_tokens)
-    num_same = sum(common_token_count.values())
 
-    if num_same == 0:
-        return 0, 0, 0
-
-    precision = 1.0 * num_same / len(prediction_tokens)
-    recall = 1.0 * num_same / len(reference_tokens)
-    f1 = (2 * precision * recall) / (precision + recall)
-
-    return precision, recall, f1
-
-
-def custom_metrics_gsm8k(preds):
-    # TODO Changed this function group to work with gsm8k
     logits = torch.tensor(preds.predictions)
     labels = torch.tensor(preds.label_ids)
 
