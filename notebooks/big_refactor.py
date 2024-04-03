@@ -152,7 +152,7 @@ def correct_solution(prediction_str, reference_str):
     # print("reference ",last_reference_line)
     # print(last_prediction_line== last_reference_line)
 
-    if last_prediction_line== last_reference_line:
+    if last_prediction_line == last_reference_line:
         return 1
     else:
         return 0
@@ -238,7 +238,7 @@ def custom_metrics_gsm8k(preds):
         pred_output_str = tokenizer.decode(pred_output_tokens)
 
         precision, recall, f1 = calculate_token_level_f1(pred_output_str, gt_output_str)
-        
+
         correct = correct_solution(pred_output_str, gt_output_str)
         solution_scores.append(correct)
 
@@ -265,7 +265,7 @@ def custom_metrics_gsm8k(preds):
         "f1": mean_f1,
         "mean_precision": mean_precision,
         "mean_recall": mean_recall,
-        "solve_rate":solve_rate,
+        "solve_rate": solve_rate,
     }
 
 

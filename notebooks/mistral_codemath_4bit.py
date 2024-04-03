@@ -20,9 +20,9 @@ import os
 # torch.cuda.set_device(1)  # Explicitly setting the device to GPU 0
 
 # INIT WANDB
-os.environ["WANDB_PROJECT"]="codemath"
-os.environ["WANDB_LOG_MODEL"]="true"
-os.environ["WANDB_WATCH"]="false"
+os.environ["WANDB_PROJECT"] = "codemath"
+os.environ["WANDB_LOG_MODEL"] = "true"
+os.environ["WANDB_WATCH"] = "false"
 
 max_seq_length = 2048
 # Load model and tokenizer
@@ -38,7 +38,13 @@ model = FastLanguageModel.get_peft_model(
     model,
     r=16,  # Configuration for PEFT, adjust as needed
     target_modules=[
-        "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
     ],
     lora_alpha=16,
     lora_dropout=0,
@@ -54,6 +60,7 @@ json_file_path = "./python_states_singleline.json"
 trace_prompt = """<s>[INST] Below is an input which contains the state of variables and code that acts upon these variables or not. Given the state and the code give the state after the code executes for each variable. Be very careful. You should clearly outline your intermediate steps and your final answer should be a newline with exactly the variables and their values. Here is the State and Code. {}
 Now generate the final state for each variable. Generate intermediate outputs.[/INST] {}</s>"""
 
+
 def formatting_prompts_func(examples):
     inputs = examples["input"]
     outputs = examples["output"]
@@ -63,6 +70,7 @@ def formatting_prompts_func(examples):
         texts.append(text)
     return {"text": texts}
 
+
 dataset = load_dataset("json", data_files=json_file_path, split="train")
 
 # Subsetting to only 10% of the dataset
@@ -70,7 +78,9 @@ dataset = dataset.shuffle(seed=42)  # Ensure a random subset is selected
 subset_size = int(0.05 * len(dataset))  # Calculate 5% of the dataset size
 dataset = dataset.select(range(subset_size))  # Select the first 5% of the dataset
 
-dataset = dataset.train_test_split(test_size=0.1)["test"]  # Use test split for demonstration
+dataset = dataset.train_test_split(test_size=0.1)[
+    "test"
+]  # Use test split for demonstration
 dataset_single_line = dataset.map(formatting_prompts_func, batched=True)
 
 # Setup Trainer
@@ -83,7 +93,7 @@ trainer = SFTTrainer(
     dataset_num_proc=2,
     packing=False,  # Packing setting
     args=TrainingArguments(
-        report_to='wandb',
+        report_to="wandb",
         per_device_train_batch_size=45,
         gradient_accumulation_steps=4,
         warmup_steps=5,
@@ -118,18 +128,19 @@ def str_to_objs(input_str: str):
             key, value_str = item.split("=")
             key = key.strip()
         except:
-            continue # no key found
+            continue  # no key found
         try:
             value_str = value_str.strip()
 
             # quick and dirty object conversion to make all literals hashable
             # TODO: create a hashable class for dicts and lists
-            literal_value = literal_eval(value_str) # safe eval
+            literal_value = literal_eval(value_str)  # safe eval
             value = make_hashable(literal_value)
             objs[key] = value
         except ValueError:
             objs[key] = "NONLITERAL_STRING"
     return objs
+
 
 def make_hashable(obj):
     if isinstance(obj, dict):
@@ -146,7 +157,8 @@ def make_hashable(obj):
     else:
         # Assume the object is hashable (e.g., numbers, strings, tuples)
         return obj
-    
+
+
 def custom_metrics(preds):
     logits = torch.tensor(preds.predictions)
     labels = torch.tensor(preds.label_ids)
@@ -161,39 +173,52 @@ def custom_metrics(preds):
     shift_logits = shift_logits.view(batch_size, -1, vocab_size)
     shift_labels = shift_labels.view(batch_size, -1)
 
-
     probs = torch.nn.functional.softmax(shift_logits.view(-1, vocab_size), dim=-1)
     p_true_tokens = probs.view(-1, vocab_size)[
-        torch.arange(batch_size * (seq_length-1)), shift_labels.view(-1)
-    ].view(batch_size, (seq_length-1))
+        torch.arange(batch_size * (seq_length - 1)), shift_labels.view(-1)
+    ].view(batch_size, (seq_length - 1))
 
     nll = -torch.log(p_true_tokens)
     mean_nll = nll.mean()
     ppl = torch.exp(mean_nll)
 
     # compute percentage of correct tokens
-    correct_tokens = (shift_logits.view(-1, vocab_size).argmax(-1) == shift_labels.view(-1)).float().mean()
+    correct_tokens = (
+        (shift_logits.view(-1, vocab_size).argmax(-1) == shift_labels.view(-1))
+        .float()
+        .mean()
+    )
 
     pred_max_labels = shift_logits.argmax(-1).view(batch_size, -1)
     f1s = []
     for i in range(batch_size):
-        unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][:-1] # drop eos_token
+        unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][
+            :-1
+        ]  # drop eos_token
         # find the index where the instruction token ends and the answer begins
         inst_token_seq = tokenizer.encode("[/INST]", return_tensors="pt")[0][1:]
         first_output_idx = None
         for j in range(unmasked_label_tokens.shape[0] - len(inst_token_seq)):
-            if torch.equal(unmasked_label_tokens[j:j+len(inst_token_seq)], inst_token_seq):
-                first_output_idx = j + len(inst_token_seq) 
+            if torch.equal(
+                unmasked_label_tokens[j : j + len(inst_token_seq)], inst_token_seq
+            ):
+                first_output_idx = j + len(inst_token_seq)
                 break
-        assert first_output_idx is not None, "Could not find the end of the instruction token"
+        assert (
+            first_output_idx is not None
+        ), "Could not find the end of the instruction token"
 
         # get ground truth output tokens
         gt_output_tokens = unmasked_label_tokens[first_output_idx:]
         # get predicted output tokens (including padding)
         pred_output_tokens_masked = pred_max_labels[i][first_output_idx:]
-        # drop the pad tokens 
-        pred_output_tokens_unmasked = pred_output_tokens_masked[pred_output_tokens_masked != -100]
-        first_pred_output_stop_idx = torch.where(pred_output_tokens_unmasked == tokenizer.eos_token_id)[0][0]
+        # drop the pad tokens
+        pred_output_tokens_unmasked = pred_output_tokens_masked[
+            pred_output_tokens_masked != -100
+        ]
+        first_pred_output_stop_idx = torch.where(
+            pred_output_tokens_unmasked == tokenizer.eos_token_id
+        )[0][0]
         pred_output_tokens = pred_output_tokens_unmasked[:first_pred_output_stop_idx]
 
         gt_output_str = tokenizer.decode(gt_output_tokens)
@@ -216,8 +241,6 @@ def custom_metrics(preds):
     return {"perplexity": ppl, "correct_tokens": correct_tokens.item(), "f1": f1_mean}
 
 
-
-
 # Start training
 trainer.compute_metrics = custom_metrics
 trainer_stats = trainer.train()
@@ -227,6 +250,6 @@ wandb.finish()
 model_save_path = "model_save_path/mistral_7b_finetuned_trace_python_with_mtoleseval"
 tokenizer_save_path = "tokenizer_save_path/mistral_7b_finetuned_with_mtoleseval"
 model.save_pretrained(model_save_path)
-tokenizer.save_pretrained(tokenizer_save_path)
+tokenizer.save_pretrained(model_save_path)
 
 ## Finetune on gsm8k now
