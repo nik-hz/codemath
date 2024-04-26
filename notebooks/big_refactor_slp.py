@@ -11,7 +11,6 @@ import numpy as np
 from transformers import AdamW
 from torch.utils.data import DataLoader
 import re
-from gsm8k_eval import PROMPT, PREAMBLE, EVAL_TEMPLATE
 
 # WANDB
 # os.environ["WANDB_PROJECT"] = "codemath"
@@ -24,10 +23,10 @@ PRETRAINED_MODEL = False
 PRETRAIN = False
 max_seq_length = 2048
 json_file_path = "./python_states_singleline.json"
-trace_prompt_trace = """<s>[INST] Below is an input which contains the state of variables and code that acts upon these variables or not. Given the state and the code give the state after the code executes for each variable. Be very careful. You should clearly outline your intermediate steps and your final answer should be a newline with exactly the variables and their values. Here is the State and Code. {}
-Now generate the final state for each variable. Generate intermediate outputs.[/INST] {}</s>"""
-trace_prompt_gsm8k = """<s>[INST] {} [/INST] {}</s>"""
-trace_prompt = trace_prompt_trace if PRETRAIN else trace_prompt_gsm8k
+# trace_prompt_trace = """<s>[INST] Below is an input which contains the state of variables and code that acts upon these variables or not. Given the state and the code give the state after the code executes for each variable. Be very careful. You should clearly outline your intermediate steps and your final answer should be a newline with exactly the variables and their values. Here is the State and Code. {}
+# Now generate the final state for each variable. Generate intermediate outputs.[/INST] {}</s>"""
+# trace_prompt_gsm8k = """<s>[INST] {} [/INST] {}</s>"""
+# trace_prompt = trace_prompt_trace if PRETRAIN else trace_prompt_gsm8k
 model_save_path = (
     "model_save_path/mistral_7b_pretrain_trace_finetuned_gsm8k_with_eval"
     if PRETRAINED_MODEL
@@ -41,9 +40,11 @@ wandb.init(
     config={
         "pretrained": PRETRAINED_MODEL,
         "architecture": "Mistral 7B",
-        "dataset": "trace python and gsm8K" if PRETRAINED_MODEL else "gsm8k only",
+        # "dataset": "trace python and gsm8K" if PRETRAINED_MODEL else "gsm8k only",
+        "dataset": "TRACED",
         "epochs": 5,
     },
+    name="big_refactor_slp",
 )
 
 
@@ -85,26 +86,43 @@ else:
         loftq_config=None,
     )
 
+alpaca_prompt = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+
+### Instruction:
+Write down all of the state changes that take place after the code snippet is executed in the format
+variable1 = value1; variable2 = value2; etc...
+
+### Input:
+{}
+ [/INST] 
+### Response:
+{}
+</s>"""
+
 
 # SETUP FUNCTIONS
 def formatting_prompts_func(examples):
-    inputs = examples["question"]
-    outputs = examples["answer"]
+    inputs = examples["input"]
+    outputs = examples["output"]
     texts = []
     for input, output in zip(inputs, outputs):
-        text = trace_prompt_gsm8k.format(input, output)
+        text = alpaca_prompt.format(input, output)
         texts.append(text)
     return {"text": texts}
 
 
 # LOAD IN DATASET AND TRAIN EVAL SPLIT
-dataset = load_dataset("gsm8k", "main", split="train")
-split_ratio = 0.05
+# dataset = load_dataset("gsm8k", "main", split="train")
+dataset = load_dataset("json", data_files=json_file_path, split="train").select(
+    range(10000)
+)
+dataset = dataset.map(formatting_prompts_func, batched=True)  # had to unset batched
+# split_ratio = 0.1
+split_ratio = 0.01
 split_datasets = dataset.train_test_split(test_size=split_ratio)
 train_dataset = split_datasets["train"]
 eval_dataset = split_datasets["test"]
-train_dataset = train_dataset.map(formatting_prompts_func, batched=True)
-eval_dataset = eval_dataset.map(formatting_prompts_func, batched=True)
+
 # train_dataset = train_dataset.select([0, 20])
 # eval_dataset = eval_dataset.select([2])
 
@@ -163,11 +181,55 @@ def correct_solution(prediction_str, reference_str):
         return 0
 
 
-def custom_metrics_gsm8k(preds):
-    # TODO Changed this function group to work with gsm8k
+def str_to_objs(input_str: str):
+    """
+    converts a string to a dict of objects
+    input_str: str
+        Must be a string of the form 'i = 4; p = [0, 1, 1, 2, 5];'
+    returns: dict
+    """
+    items = [x.strip() for x in input_str.split(";")]
+    objs = dict()
+    for item in items:
+        try:
+            key, value_str = item.split("=")
+            key = key.strip()
+        except:
+            continue  # no key found
+        try:
+            value_str = value_str.strip()
+
+            # quick and dirty object conversion to make all literals hashable
+            # TODO: create a hashable class for dicts and lists
+            literal_value = literal_eval(value_str)  # safe eval
+            value = make_hashable(literal_value)
+            objs[key] = value
+        except:
+            objs[key] = "NONLITERAL_STRING"
+    return objs
+
+
+def make_hashable(obj):
+    if isinstance(obj, dict):
+        # Convert dict to a sorted tuple of key-value pairs, making keys/values hashable recursively
+        return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
+    if isinstance(obj, set):
+        return frozenset(obj)
+    if isinstance(obj, tuple):
+        return tuple(make_hashable(item) for item in obj)
+    # recursion case
+    elif isinstance(obj, list):
+        # Convert lists to tuples
+        return tuple(make_hashable(item) for item in obj)
+    else:
+        # Assume the object is hashable (e.g., numbers, strings, tuples)
+        return obj
+
+
+def custom_metrics(preds):
+    print(preds)
     logits = torch.tensor(preds.predictions)
     labels = torch.tensor(preds.label_ids)
-
     batch_size, seq_length, vocab_size = logits.shape
 
     # steal from inside llama
@@ -185,7 +247,8 @@ def custom_metrics_gsm8k(preds):
     ].view(batch_size, (seq_length - 1))
 
     nll = -torch.log(p_true_tokens)
-    ppl = nll.exp().mean()
+    mean_nll = nll.mean()
+    ppl = torch.exp(mean_nll)
 
     # compute percentage of correct tokens
     correct_tokens = (
@@ -195,12 +258,7 @@ def custom_metrics_gsm8k(preds):
     )
 
     pred_max_labels = shift_logits.argmax(-1).view(batch_size, -1)
-
-    f1_scores = []
-    precision_scores = []
-    recall_scores = []
-    solution_scores = []
-
+    f1s = []
     for i in range(batch_size):
         unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][
             :-1
@@ -226,51 +284,44 @@ def custom_metrics_gsm8k(preds):
         pred_output_tokens_unmasked = pred_output_tokens_masked[
             pred_output_tokens_masked != -100
         ]
-
-        eos_token_indices = torch.where(
-            pred_output_tokens_unmasked == tokenizer.eos_token_id
-        )[0]
-
-        if eos_token_indices.size(0) > 0:
-            first_pred_output_stop_idx = eos_token_indices[0].item()
-        else:
-            first_pred_output_stop_idx = len(pred_output_tokens_unmasked) - 1
-
+        try:
+            first_pred_output_stop_idx = torch.where(
+                pred_output_tokens_unmasked == tokenizer.eos_token_id
+            )[0][0]
+        except:
+            try:
+                first_pred_output_stop_idx = torch.where(
+                    pred_output_tokens_unmasked == tokenizer.pad_token_id
+                )[0][0]
+            except:
+                first_pred_output_stop_idx = -1
         pred_output_tokens = pred_output_tokens_unmasked[:first_pred_output_stop_idx]
 
         gt_output_str = tokenizer.decode(gt_output_tokens)
         pred_output_str = tokenizer.decode(pred_output_tokens)
 
-        precision, recall, f1 = calculate_token_level_f1(pred_output_str, gt_output_str)
-
-        correct = correct_solution(pred_output_str, gt_output_str)
-        solution_scores.append(correct)
-
-        f1_scores.append(f1)
-        precision_scores.append(precision)
-        recall_scores.append(recall)
-
-    mean_f1 = np.mean(f1_scores) if f1_scores else 0
-    mean_precision = np.mean(precision_scores) if precision_scores else 0
-    mean_recall = np.mean(recall_scores) if recall_scores else 0
-    solve_rate = np.mean(solution_scores) if solution_scores else 0
-
+        # compare gt/preds interpreted in python
+        gt_state = str_to_objs(gt_output_str)
+        pred_state = str_to_objs(pred_output_str)
+        # compute f1 for values in the two states
+        gt_vars = set(gt_state.items())
+        pred_vars = set(pred_state.items())
+        try:
+            precision = len(gt_vars.intersection(pred_vars)) / len(pred_vars)
+            recall = len(gt_vars.intersection(pred_vars)) / len(gt_vars)
+            f1 = 2 * precision * recall / (precision + recall)
+        except ZeroDivisionError:
+            f1 = 0
+        f1s.append(f1)
+    f1_mean = torch.tensor(f1s).mean().item()
     wandb.log(
         {
             "perplexity": ppl.item(),
             "correct_tokens": correct_tokens.item(),
-            "f1": mean_f1,
-            "solve_rate": solve_rate,
+            "f1": f1_mean,
         }
     )
-    return {
-        "perplexity": ppl,
-        "correct_tokens": correct_tokens.item(),
-        "f1": mean_f1,
-        "mean_precision": mean_precision,
-        "mean_recall": mean_recall,
-        "solve_rate": solve_rate,
-    }
+    return {"perplexity": ppl, "correct_tokens": correct_tokens.item(), "f1": f1_mean}
 
 
 # TRAINING ONLY RUN TO SAVE MODEL FOR LATER TESTING
@@ -290,11 +341,11 @@ trainer = SFTTrainer(
         gradient_accumulation_steps=4,
         warmup_steps=5,
         num_train_epochs=5,
-        learning_rate=1e-3,
+        learning_rate=5e-4,
         # learning_rate=0,
         fp16=not torch.cuda.is_bf16_supported(),
         bf16=torch.cuda.is_bf16_supported(),
-        logging_steps=1,
+        logging_steps=10,
         optim="adamw_8bit",
         weight_decay=0.01,
         lr_scheduler_type="constant",  # don't want to decay this for now
@@ -302,14 +353,14 @@ trainer = SFTTrainer(
         seed=3407,
         output_dir="outputs",
         evaluation_strategy="steps",
-        eval_steps=4,
-        # eval_steps=1,
+        # eval_steps=10,
+        eval_steps=1,
         do_eval=True,
         eval_accumulation_steps=50,
     ),
 )
 
-trainer.compute_metrics = custom_metrics_gsm8k
+trainer.compute_metrics = custom_metrics
 trainer.train()
 model.save_pretrained(model_save_path)
 tokenizer.save_pretrained(model_save_path)
