@@ -13,7 +13,7 @@ Original file is located at
 !pip install -q -U git+https://github.com/huggingface/accelerate.git
 !pip install -q -U datasets scipy ipywidgets matplotlib
 
-!pip install --upgrade git+https://github.com/facebookresearch/xformers@main#egg=xformers[cuda]
+# !pip install --upgrade git+https://github.com/facebookresearch/xformers@main#egg=xformers[cuda]
 
 import torch
 major_version, minor_version = torch.cuda.get_device_capability()
