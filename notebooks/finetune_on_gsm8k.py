@@ -76,7 +76,7 @@ model = FastLanguageModel.get_peft_model(
 
 
 # Prepare the dataset
-json_file_path = "./train.jsonl" # gsm8k dataset
+json_file_path = "./train.jsonl"  # gsm8k dataset
 trace_prompt = """<s>[INST] {} [/INST] {}</s>"""
 
 

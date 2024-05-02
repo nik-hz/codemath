@@ -130,6 +130,7 @@ Response: She bought 5 bagels for $3 each. This means she spent 5 * $3 = $15 on 
 {}
 </s>"""
 
+
 # SETUP FUNCTIONS
 def formatting_prompts_func_slp(examples):
     inputs = examples["input"]
@@ -139,6 +140,8 @@ def formatting_prompts_func_slp(examples):
         text = prompt_slp.format(input, output)
         texts.append(text)
     return {"text": texts}
+
+
 # SETUP FUNCTIONS
 def formatting_prompts_func_gsm8k(examples):
     inputs = examples["question"]
@@ -149,10 +152,15 @@ def formatting_prompts_func_gsm8k(examples):
         texts.append(text)
     return {"text": texts}
 
+
 # LOAD IN DATASET AND TRAIN EVAL SPLIT
 # dataset = load_dataset("gsm8k", "main", split="train")
-dataset_slp = load_dataset("json", data_files=json_file_path, split="train").select(range(10000)) 
-dataset_slp = dataset_slp.map(formatting_prompts_func_slp, batched=True) # had to unset batched
+dataset_slp = load_dataset("json", data_files=json_file_path, split="train").select(
+    range(10000)
+)
+dataset_slp = dataset_slp.map(
+    formatting_prompts_func_slp, batched=True
+)  # had to unset batched
 # split_ratio = 0.1
 # split_datasets_slp = dataset_slp.train_test_split(test_size=split_ratio)
 # train_dataset_slp = split_datasets_slp["train"]
@@ -162,6 +170,7 @@ dataset_slp = dataset_slp.map(formatting_prompts_func_slp, batched=True) # had t
 # load the gsm8k dataset as the eval dataset
 dataset_gsm8k = load_dataset("gsm8k", "main", split="train")
 eval_dataset_gsm8k = dataset_gsm8k.map(formatting_prompts_func_gsm8k, batched=True)
+
 
 # EVAL LOGIC
 def calculate_token_level_f1(prediction_tokens, reference_tokens):
@@ -216,6 +225,7 @@ def correct_solution_slp(prediction_str, reference_str):
     else:
         return 0
 
+
 def str_to_objs(input_str: str):
     """
     converts a string to a list of objects
@@ -230,18 +240,19 @@ def str_to_objs(input_str: str):
             key, value_str = item.split("=")
             key = key.strip()
         except:
-            continue # no key found
+            continue  # no key found
         try:
             value_str = value_str.strip()
 
             # quick and dirty object conversion to make all literals hashable
             # TODO: create a hashable class for dicts and lists
-            literal_value = literal_eval(value_str) # safe eval
+            literal_value = literal_eval(value_str)  # safe eval
             value = make_hashable(literal_value)
             objs[key] = value
         except ValueError:
             objs[key] = "NONLITERAL_STRING"
     return objs
+
 
 def make_hashable(obj):
     if isinstance(obj, dict):
@@ -258,7 +269,8 @@ def make_hashable(obj):
     else:
         # Assume the object is hashable (e.g., numbers, strings, tuples)
         return obj
-    
+
+
 def custom_metrics_slp(preds):
     print(preds)
     logits = torch.tensor(preds.predictions)
@@ -274,39 +286,52 @@ def custom_metrics_slp(preds):
     shift_logits = shift_logits.view(batch_size, -1, vocab_size)
     shift_labels = shift_labels.view(batch_size, -1)
 
-
     probs = torch.nn.functional.softmax(shift_logits.view(-1, vocab_size), dim=-1)
     p_true_tokens = probs.view(-1, vocab_size)[
-        torch.arange(batch_size * (seq_length-1)), shift_labels.view(-1)
-    ].view(batch_size, (seq_length-1))
+        torch.arange(batch_size * (seq_length - 1)), shift_labels.view(-1)
+    ].view(batch_size, (seq_length - 1))
 
     nll = -torch.log(p_true_tokens)
     mean_nll = nll.mean()
     ppl = torch.exp(mean_nll)
 
     # compute percentage of correct tokens
-    correct_tokens = (shift_logits.view(-1, vocab_size).argmax(-1) == shift_labels.view(-1)).float().mean()
+    correct_tokens = (
+        (shift_logits.view(-1, vocab_size).argmax(-1) == shift_labels.view(-1))
+        .float()
+        .mean()
+    )
 
     pred_max_labels = shift_logits.argmax(-1).view(batch_size, -1)
     f1s = []
     for i in range(batch_size):
-        unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][:-1] # drop eos_token
+        unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][
+            :-1
+        ]  # drop eos_token
         # find the index where the instruction token ends and the answer begins
         inst_token_seq = tokenizer.encode("[/INST]", return_tensors="pt")[0][1:]
         first_output_idx = None
         for j in range(unmasked_label_tokens.shape[0] - len(inst_token_seq)):
-            if torch.equal(unmasked_label_tokens[j:j+len(inst_token_seq)], inst_token_seq):
-                first_output_idx = j + len(inst_token_seq) 
+            if torch.equal(
+                unmasked_label_tokens[j : j + len(inst_token_seq)], inst_token_seq
+            ):
+                first_output_idx = j + len(inst_token_seq)
                 break
-        assert first_output_idx is not None, "Could not find the end of the instruction token"
+        assert (
+            first_output_idx is not None
+        ), "Could not find the end of the instruction token"
 
         # get ground truth output tokens
         gt_output_tokens = unmasked_label_tokens[first_output_idx:]
         # get predicted output tokens (including padding)
         pred_output_tokens_masked = pred_max_labels[i][first_output_idx:]
-        # drop the pad tokens 
-        pred_output_tokens_unmasked = pred_output_tokens_masked[pred_output_tokens_masked != -100]
-        first_pred_output_stop_idx = torch.where(pred_output_tokens_unmasked == tokenizer.eos_token_id)[0][0]
+        # drop the pad tokens
+        pred_output_tokens_unmasked = pred_output_tokens_masked[
+            pred_output_tokens_masked != -100
+        ]
+        first_pred_output_stop_idx = torch.where(
+            pred_output_tokens_unmasked == tokenizer.eos_token_id
+        )[0][0]
         pred_output_tokens = pred_output_tokens_unmasked[:first_pred_output_stop_idx]
 
         gt_output_str = tokenizer.decode(gt_output_tokens)
@@ -326,8 +351,16 @@ def custom_metrics_slp(preds):
             f1 = 0
         f1s.append(f1)
     f1_mean = torch.tensor(f1s).mean().item()
-    wandb.log({"perplexity": ppl.item(), "correct_tokens": correct_tokens.item(), "f1": f1_mean})
+    wandb.log(
+        {
+            "perplexity": ppl.item(),
+            "correct_tokens": correct_tokens.item(),
+            "f1": f1_mean,
+        }
+    )
     return {"perplexity": ppl, "correct_tokens": correct_tokens.item(), "f1": f1_mean}
+
+
 def correct_solution(prediction_str, reference_str):
     """
     Compare the final numerical output of the model with the reference tokens.
@@ -362,6 +395,8 @@ def correct_solution(prediction_str, reference_str):
         return 1
     else:
         return 0
+
+
 def custom_metrics_gsm8k(preds):
     # TODO Changed this function group to work with gsm8k
     logits = torch.tensor(preds.predictions)
@@ -470,6 +505,7 @@ def custom_metrics_gsm8k(preds):
         "mean_recall": mean_recall,
         "solve_rate": solve_rate,
     }
+
 
 # TRAINING ONLY RUN TO SAVE MODEL FOR LATER TESTING
 trainer = SFTTrainer(

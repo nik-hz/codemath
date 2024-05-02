@@ -55,7 +55,13 @@ model = FastLanguageModel.get_peft_model(
     model,
     r=16,  # Configuration for PEFT, adjust as needed
     target_modules=[
-        "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
     ],
     lora_alpha=16,
     lora_dropout=0,
@@ -71,6 +77,7 @@ model = FastLanguageModel.get_peft_model(
 json_file_path = "./train.jsonl"
 trace_prompt = """<s>[INST] {} [/INST] {}</s>"""
 
+
 def formatting_prompts_func(examples):
     inputs = examples["question"]
     outputs = examples["answer"]
@@ -80,12 +87,13 @@ def formatting_prompts_func(examples):
         texts.append(text)
     return {"text": texts}
 
+
 # dataset = load_dataset("json", data_files=json_file_path, split="train")
 
-dataset = load_dataset("gsm8k", 'main', split='train')
+dataset = load_dataset("gsm8k", "main", split="train")
 # dataset = dataset['train']
 
-split_ratio = 0.1 
+split_ratio = 0.1
 split_datasets = dataset.train_test_split(test_size=split_ratio)
 
 train_dataset = split_datasets["train"]
@@ -93,7 +101,7 @@ eval_dataset = split_datasets["test"]
 
 # Example of manually selecting two examples for training and one for evaluation
 train_dataset = dataset.select([0, 20])  # Select the first two examples for training
-eval_dataset = dataset.select([2])      # Select the third example for evaluation
+eval_dataset = dataset.select([2])  # Select the third example for evaluation
 
 
 # subset_size = int(0.05 * len(dataset))  # Calculate 5% of the dataset size
@@ -149,18 +157,19 @@ def str_to_objs(input_str: str):
             key, value_str = item.split("=")
             key = key.strip()
         except:
-            continue # no key found
+            continue  # no key found
         try:
             value_str = value_str.strip()
 
             # quick and dirty object conversion to make all literals hashable
             # TODO: create a hashable class for dicts and lists
-            literal_value = literal_eval(value_str) # safe eval
+            literal_value = literal_eval(value_str)  # safe eval
             value = make_hashable(literal_value)
             objs[key] = value
         except ValueError:
             objs[key] = "NONLITERAL_STRING"
     return objs
+
 
 def make_hashable(obj):
     if isinstance(obj, dict):
@@ -177,7 +186,8 @@ def make_hashable(obj):
     else:
         # Assume the object is hashable (e.g., numbers, strings, tuples)
         return obj
-    
+
+
 def custom_metrics(preds):
     print(preds)
     logits = torch.tensor(preds.predictions)
@@ -193,39 +203,52 @@ def custom_metrics(preds):
     shift_logits = shift_logits.view(batch_size, -1, vocab_size)
     shift_labels = shift_labels.view(batch_size, -1)
 
-
     probs = torch.nn.functional.softmax(shift_logits.view(-1, vocab_size), dim=-1)
     p_true_tokens = probs.view(-1, vocab_size)[
-        torch.arange(batch_size * (seq_length-1)), shift_labels.view(-1)
-    ].view(batch_size, (seq_length-1))
+        torch.arange(batch_size * (seq_length - 1)), shift_labels.view(-1)
+    ].view(batch_size, (seq_length - 1))
 
     nll = -torch.log(p_true_tokens)
     mean_nll = nll.mean()
     ppl = torch.exp(mean_nll)
 
     # compute percentage of correct tokens
-    correct_tokens = (shift_logits.view(-1, vocab_size).argmax(-1) == shift_labels.view(-1)).float().mean()
+    correct_tokens = (
+        (shift_logits.view(-1, vocab_size).argmax(-1) == shift_labels.view(-1))
+        .float()
+        .mean()
+    )
 
     pred_max_labels = shift_logits.argmax(-1).view(batch_size, -1)
     f1s = []
     for i in range(batch_size):
-        unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][:-1] # drop eos_token
+        unmasked_label_tokens = shift_labels[i][shift_labels[i] != -100][
+            :-1
+        ]  # drop eos_token
         # find the index where the instruction token ends and the answer begins
         inst_token_seq = tokenizer.encode("[/INST]", return_tensors="pt")[0][1:]
         first_output_idx = None
         for j in range(unmasked_label_tokens.shape[0] - len(inst_token_seq)):
-            if torch.equal(unmasked_label_tokens[j:j+len(inst_token_seq)], inst_token_seq):
-                first_output_idx = j + len(inst_token_seq) 
+            if torch.equal(
+                unmasked_label_tokens[j : j + len(inst_token_seq)], inst_token_seq
+            ):
+                first_output_idx = j + len(inst_token_seq)
                 break
-        assert first_output_idx is not None, "Could not find the end of the instruction token"
+        assert (
+            first_output_idx is not None
+        ), "Could not find the end of the instruction token"
 
         # get ground truth output tokens
         gt_output_tokens = unmasked_label_tokens[first_output_idx:]
         # get predicted output tokens (including padding)
         pred_output_tokens_masked = pred_max_labels[i][first_output_idx:]
-        # drop the pad tokens 
-        pred_output_tokens_unmasked = pred_output_tokens_masked[pred_output_tokens_masked != -100]
-        first_pred_output_stop_idx = torch.where(pred_output_tokens_unmasked == tokenizer.eos_token_id)[0][0]
+        # drop the pad tokens
+        pred_output_tokens_unmasked = pred_output_tokens_masked[
+            pred_output_tokens_masked != -100
+        ]
+        first_pred_output_stop_idx = torch.where(
+            pred_output_tokens_unmasked == tokenizer.eos_token_id
+        )[0][0]
         pred_output_tokens = pred_output_tokens_unmasked[:first_pred_output_stop_idx]
 
         gt_output_str = tokenizer.decode(gt_output_tokens)
@@ -245,9 +268,14 @@ def custom_metrics(preds):
             f1 = 0
         f1s.append(f1)
     f1_mean = torch.tensor(f1s).mean().item()
-    wandb.log({"perplexity": ppl.item(), "correct_tokens": correct_tokens.item(), "f1": f1_mean})
+    wandb.log(
+        {
+            "perplexity": ppl.item(),
+            "correct_tokens": correct_tokens.item(),
+            "f1": f1_mean,
+        }
+    )
     return {"perplexity": ppl, "correct_tokens": correct_tokens.item(), "f1": f1_mean}
-
 
 
 # Start training
