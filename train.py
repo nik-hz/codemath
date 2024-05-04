@@ -10,6 +10,9 @@ from datasets import load_dataset, Dataset, DatasetDict
 from unsloth import FastLanguageModel
 from trl import SFTTrainer
 from collections import Counter
+import re
+
+# python train.py -o models/llama7b -m 7bU -u -d datasets/Training\ Trace\ Dataset.json -ev
 
 # custom imports
 from prompts import TRACE_PROMPT, EVAL_TEMPLATE, PREAMBLE, GSM8K_FEW_PROMPT
@@ -19,9 +22,64 @@ parser.add_argument("-m", "--model")
 parser.add_argument("-d", "--data")
 parser.add_argument("-o", "--output")
 parser.add_argument("-u", "--unsloth", action="store_true")
+parser.add_argument("-ev", "--ev", action="store_true")
 args = parser.parse_args()
 
+model_save_path, data_path, model_name, unsloth, evaluation_mode = (
+    args.output,
+    args.data,
+    args.model,
+    args.unsloth,
+    args.ev,
+)
 
+models = {
+    "13bM": "meta-llama/Llama-2-13b-chat-hf",
+    "7bM": "meta-llama/Llama-2-7b-chat-hf",
+    "7bUc": "unsloth/llama-2-7b-chat-bnb-4bit",
+    "7bU": "unsloth/llama-2-7b-bnb-4bit",
+    "13bU": "unsloth/llama-2-13b-bnb-4bit",
+}
+
+wandb.init(
+    project="codemath-v2",
+    config={
+        "dataset": f"{data_path}",
+    },
+    name=models[model_name],
+)
+
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name=models[model_name],
+    max_seq_length=2048,
+    dtype=None,
+    load_in_4bit=True,
+)
+tokenizer.pad_token = tokenizer.eos_token
+
+model = FastLanguageModel.get_peft_model(
+    model,
+    r=16,  # Configuration for PEFT, adjust as needed
+    target_modules=[
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    ],
+    lora_alpha=16,
+    lora_dropout=0,
+    bias="none",
+    use_gradient_checkpointing=True,
+    random_state=3407,
+    use_rslora=False,
+    loftq_config=None,
+)
+
+
+# both functions have the eos token appended in the formatte3d prompt
 def format_trace_data(examples, prompt=TRACE_PROMPT):
     entry_vars = examples["entry_variables"]
     src_seq = examples["src_seq"]
@@ -41,7 +99,7 @@ def format_gsm8k(examples):
     outputs = examples["answer"]
     texts = []
     for input, output in zip(inputs, outputs):
-        text = GSM8K_FEW_PROMPT + PREAMBLE + EVAL_TEMPLATE.format(input, output)
+        text = EVAL_TEMPLATE.format(PREAMBLE, GSM8K_FEW_PROMPT, input, output)
         texts.append(text)
     return {"text": texts}
 
@@ -95,7 +153,7 @@ def calculate_token_level_f1(prediction_tokens, reference_tokens):
     return precision, recall, f1
 
 
-def correct_solution(prediction_str, reference_str):
+def correct_solution_gsm8k(prediction_str, reference_str):
     """
     Compare the final numerical output of the model with the reference tokens.
 
@@ -109,31 +167,9 @@ def correct_solution(prediction_str, reference_str):
     # prediction_str = tokenizer.decode(prediction_tokens, skip_special_tokens=True)
     # reference_str = tokenizer.decode(reference_tokens, skip_special_tokens=True)
 
-    prediction_lines = prediction_str.strip().split("\n")
-    reference_lines = reference_str.strip().split("\n")
+    gt = re.findall(r"\d+", reference_str.strip().split("\n")[-1].strip())
 
-    # print(prediction_lines)
-    # print(reference_lines)
-
-    last_prediction_line = prediction_lines[-1].strip()
-    last_reference_line = reference_lines[-1].strip()
-
-    # print("predicted ",last_prediction_line)
-    # print("reference ",last_reference_line)
-    # print(last_prediction_line== last_reference_line)
-
-    # last_prediction_num = re.findall(r"\d+", last_prediction_line)
-    # TODO converted this for custom eval since formatting was a bit off here
-
-    # last_prediction_num = [extract_number_from_text(pl) for pl in prediction_lines]
-    # last_reference_num = re.findall(r"\d+", last_reference_line)
-    last_prediction_num = extract_number_from_text(prediction_str, "answer is")
-    last_reference_num = extract_number_from_text(reference_str, "The answer is")
-
-    # print("model:", last_prediction_num)
-    # print("GT", last_reference_num)
-
-    if last_prediction_num == last_reference_num:
+    if any(num in prediction_str for num in gt):
         return 1
     else:
         return 0
@@ -220,7 +256,7 @@ def custom_metrics_gsm8k(preds):
 
         precision, recall, f1 = calculate_token_level_f1(pred_output_str, gt_output_str)
 
-        correct = correct_solution(pred_output_str, gt_output_str)
+        correct = correct_solution_gsm8k(pred_output_str, gt_output_str)
         solution_scores.append(correct)
 
         f1_scores.append(f1)
@@ -252,54 +288,6 @@ def custom_metrics_gsm8k(preds):
 
 ### TRAINING ###
 
-model_save_path, data_path, model, unsloth = (
-    args.output,
-    args.data,
-    args.model,
-    args.unsloth,
-)
-
-models = {
-    "13bM": "meta-llama/Llama-2-13b-chat-hf",
-    "7bM": "meta-llama/Llama-2-7b-chat-hf",
-    "7bU": "unsloth/llama-2-7b-chat-bnb-4bit",
-}
-
-wandb.init(
-    project="codemath-v2",
-    config={
-        "dataset": f"{data_path}",
-    },
-    name=models[model],
-)
-
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name=models[model],
-    max_seq_length=2048,
-    dtype=None,
-    load_in_4bit=True,
-)
-
-model = FastLanguageModel.get_peft_model(
-    model,
-    r=16,  # Configuration for PEFT, adjust as needed
-    target_modules=[
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "o_proj",
-        "gate_proj",
-        "up_proj",
-        "down_proj",
-    ],
-    lora_alpha=16,
-    lora_dropout=0,
-    bias="none",
-    use_gradient_checkpointing=True,
-    random_state=3407,
-    use_rslora=False,
-    loftq_config=None,
-)
 
 ## Load Dataset and train ##
 dataset_traced = load_dataset("json", data_files=data_path, split="train")
@@ -307,46 +295,78 @@ dataset_traced = dataset_traced.map(format_trace_data, batched=True).train_test_
     train_size=0.1
 )
 
+# dataset_traced = load_dataset("gsm8k", "main", split="train")
+# dataset_traced = dataset_traced.map(format_gsm8k, batched=True).train_test_split(
+#     train_size=0.05
+# )
+
 dataset_gsm8k = load_dataset("gsm8k", "main", split="test")
-eval_dataset = dataset_gsm8k.map(format_gsm8k, batched=True)
+eval_dataset = dataset_gsm8k.map(format_gsm8k, batched=True).train_test_split(
+    test_size=0.1
+)
+
+eval_args = TrainingArguments(
+    report_to="wandb",
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=1,
+    gradient_accumulation_steps=4,
+    warmup_steps=5,
+    max_steps=1,
+    learning_rate=0,
+    fp16=not torch.cuda.is_bf16_supported(),
+    bf16=torch.cuda.is_bf16_supported(),
+    logging_steps=10,
+    optim="adamw_8bit",
+    weight_decay=0.01,
+    lr_scheduler_type="constant",
+    seed=3407,
+    output_dir=f"outputs/eval/{model_name}",
+    evaluation_strategy="steps",
+    eval_steps=1,
+    do_eval=True,
+    eval_accumulation_steps=50,
+)
+
+train_args = TrainingArguments(
+    report_to="wandb",
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=1,
+    gradient_accumulation_steps=4,
+    warmup_steps=5,
+    num_train_epochs=1,
+    learning_rate=2e-4,
+    fp16=not torch.cuda.is_bf16_supported(),
+    bf16=torch.cuda.is_bf16_supported(),
+    logging_steps=10,
+    optim="adamw_8bit",
+    weight_decay=0.01,
+    lr_scheduler_type="constant",
+    seed=3407,
+    output_dir=f"outputs/train/{model_name}",
+    evaluation_strategy="steps",
+    eval_steps=100,
+    do_eval=True,
+    eval_accumulation_steps=50,
+)
 
 trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
     train_dataset=dataset_traced["train"],
-    eval_dataset=eval_dataset,
+    eval_dataset=eval_dataset["test"],
     dataset_text_field="text",
     max_seq_length=2048,
     dataset_num_proc=2,
     packing=False,  # Packing setting
-    args=TrainingArguments(
-        report_to="wandb",
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=4,
-        warmup_steps=5,
-        num_train_epochs=1,
-        learning_rate=2e-4,
-        # learning_rate=0,
-        fp16=not torch.cuda.is_bf16_supported(),
-        bf16=torch.cuda.is_bf16_supported(),
-        logging_steps=10,
-        optim="adamw_8bit",
-        weight_decay=0.01,
-        lr_scheduler_type="constant",  # don't want to decay this for now
-        # lr_scheduler_type="linear", # don't want to decay this for now
-        seed=3407,
-        output_dir="outputs",
-        evaluation_strategy="steps",
-        eval_steps=20,
-        do_eval=True,
-        eval_accumulation_steps=50,
-    ),
+    args=eval_args if evaluation_mode else train_args,
 )
 
 # Train model
 trainer.compute_metrics = custom_metrics_gsm8k
 trainer.train()
-model.save_pretrained(model_save_path)
-tokenizer.save_pretrained(model_save_path)
+
+if not evaluation_mode:
+    model.save_pretrained(model_save_path)
+    tokenizer.save_pretrained(model_save_path)
+
 wandb.finish()

@@ -15,14 +15,17 @@ Line Coverage: {}
 Branch Coverage: {}
  </s>"""
 
-{
-    "entry_variables": "3 3\n9 3 8\n4\n6\n5",
-    "src_seq": '#include <stdio.h> \n int main ( void ) { \n int n , q , c [ 300 ] , qn ; \n int i , j = 1 , max [ 300 ] ; \n scanf ( "%d%d" , & n , & q ) ; \n for ( i = 0 ; i < n ; i ++ ) scanf ( "%d" , & c [ i ] ) ; \n for ( i = 0 ; i < q ; i ++ ) { \n scanf ( "%d" , & qn ) ; \n max [ i ] = c [ 0 ] % qn ; \n for ( j = 1 ; j < n ; j ++ ) { \n if ( c [ j ] % qn > max [ i ] ) \n max [ i ] = c [ j ] % qn ; \n } \n } \n for ( i = 0 ; i < q ; i ++ ) printf ( "%d" , max [ i ] ) ; \n return 0 ; \n }',
-    "var_type_seq": "## ## ## ## ## ## ## ## ## ## ## basic_type ## basic_type ## array ## ## ## ## basic_type ## ## ## basic_type ## basic_type ## ## ## array ## ## ## ## ## ## ## ## ## ## basic_type ## ## basic_type ## ## ## ## ## basic_type ## ## ## basic_type ## basic_type ## basic_type ## ## ## ## ## ## ## array ## basic_type ## ## ## ## ## ## basic_type ## ## ## basic_type ## basic_type ## basic_type ## ## ## ## ## ## ## ## ## basic_type ## ## ## array ## basic_type ## ## array ## ## ## ## basic_type ## ## ## ## basic_type ## ## ## basic_type ## basic_type ## basic_type ## ## ## ## ## ## array ## basic_type ## ## basic_type ## array ## basic_type ## ## ## array ## basic_type ## ## array ## basic_type ## ## basic_type ## ## ## ## ## ## ## ## basic_type ## ## ## basic_type ## basic_type ## basic_type ## ## ## ## ## ## array ## basic_type ## ## ## ## ## ## ## ## ##",
-    "value_type_seq": "## ## ## ## ## ## ## ## ## ## ## int ## int ## int ## ## ## ## int ## ## ## int ## int ## ## ## int ## ## ## ## ## ## ## ## ## ## int ## ## int ## ## ## ## ## int ## ## ## int ## int ## int ## ## ## ## ## ## ## int ## int ## ## ## ## ## ## int ## ## ## int ## int ## int ## ## ## ## ## ## ## ## ## int ## ## ## int ## int ## ## int ## ## ## ## int ## ## ## ## int ## ## ## int ## int ## int ## ## ## ## ## ## int ## int ## ## int ## int ## int ## ## ## int ## int ## ## int ## int ## ## int ## ## ## ## ## ## ## ## int ## ## ## int ## int ## int ## ## ## ## ## ## int ## int ## ## ## ## ## ## ## ## ##",
-    "abstract_value_seq": "## ## ## ## ## ## ## ## ## ## ## NOT_REACHED ## NOT_REACHED ## NOT_REACHED ## ## ## ## NOT_REACHED ## ## ## UNKNOWN ## UNKNOWN ## ## ## UNKNOWN ## ## ## ## ## ## ## ## ## ## POSITIVE-VL ## ## NEGATIVE-VL ## ## ## ## ## ZERO ## ## ## ZERO ## POSITIVE-REG ## ZERO ## ## ## ## ## ## ## KNOWN ## ZERO ## ## ## ## ## ## POSITIVE-REG ## ## ## POSITIVE-REG ## POSITIVE-REG ## POSITIVE-REG ## ## ## ## ## ## ## ## ## ZERO ## ## ## KNOWN ## POSITIVE-REG ## ## KNOWN ## ## ## ## POSITIVE-REG ## ## ## ## POSITIVE-REG ## ## ## POSITIVE-REG ## POSITIVE-REG ## POSITIVE-REG ## ## ## ## ## ## KNOWN ## POSITIVE-REG ## ## POSITIVE-REG ## KNOWN ## POSITIVE-REG ## ## ## KNOWN ## POSITIVE-REG ## ## KNOWN ## POSITIVE-REG ## ## POSITIVE-REG ## ## ## ## ## ## ## ## POSITIVE-REG ## ## ## POSITIVE-REG ## POSITIVE-REG ## POSITIVE-REG ## ## ## ## ## ## KNOWN ## POSITIVE-REG ## ## ## ## ## ## ## ## ##",
-}
+# GSM8k
 
+EVAL_TEMPLATE = """
+<s> [INST] {}
+{}
+Q: {}
+ [/INST]
+A: {}
+ </s>"""
+
+PREAMBLE = """As an expert problem solver solve step by step the following mathematical questions."""
 
 GSM8K_FEW_PROMPT = """Q: There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done, there will be 21 trees. How many trees did the grove workers plant today?
 A: We start with 15 trees. Later we have 21 trees. The difference must be the number of trees they planted. So, they must have planted 21 - 15 = 6 trees. The answer is 6.
