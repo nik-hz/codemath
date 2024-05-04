@@ -7,86 +7,100 @@ Original file is located at
     https://colab.research.google.com/drive/1p3UpUa0q1mSiOvZoyODiJyiG4kY9fKqw
 """
 
-!pip install -q -U bitsandbytes
-!pip install -q -U git+https://github.com/huggingface/transformers.git
-!pip install -q -U git+https://github.com/huggingface/peft.git
-!pip install -q -U git+https://github.com/huggingface/accelerate.git
-!pip install -q -U datasets scipy ipywidgets matplotlib
+# !pip install -q -U bitsandbytes
+# !pip install -q -U git+https://github.com/huggingface/transformers.git
+# !pip install -q -U git+https://github.com/huggingface/peft.git
+# !pip install -q -U git+https://github.com/huggingface/accelerate.git
+# !pip install -q -U datasets scipy ipywidgets matplotlib
 
 import torch
+
 major_version, minor_version = torch.cuda.get_device_capability()
 # Must install separately since Colab has torch 2.2.1, which breaks packages
-!pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
-if major_version >= 8:
-    # Use this for new GPUs like Ampere, Hopper GPUs (RTX 30xx, RTX 40xx, A100, H100, L40)
-    !pip install --no-deps packaging ninja einops flash-attn xformers trl peft accelerate bitsandbytes
-else:
-    # Use this for older GPUs (V100, Tesla T4, RTX 20xx)
-    !pip install --no-deps xformers trl peft accelerate bitsandbytes
-pass
+# !pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
+# if major_version >= 8:
+#     # Use this for new GPUs like Ampere, Hopper GPUs (RTX 30xx, RTX 40xx, A100, H100, L40)
+#     !pip install --no-deps packaging ninja einops flash-attn xformers trl peft accelerate bitsandbytes
+# else:
+#     # Use this for older GPUs (V100, Tesla T4, RTX 20xx)
+#     !pip install --no-deps xformers trl peft accelerate bitsandbytes
+# pass
 
-from google.colab import drive
-drive.mount('/content/drive')
+# from google.colab import drive
+# drive.mount('/content/drive')
 
 from unsloth import FastLanguageModel
 import torch
 
-max_seq_length = 2048 # Choose any! We auto support RoPE Scaling internally!
-dtype = None # None for auto detection. Float16 for Tesla T4, V100, Bfloat16␣↪for Ampere+
-load_in_4bit = True # Use 4bit quantization to reduce memory usage. Can be␣↪False.
+max_seq_length = 2048  # Choose any! We auto support RoPE Scaling internally!
+dtype = (
+    None  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16␣↪for Ampere+
+)
+load_in_4bit = True  # Use 4bit quantization to reduce memory usage. Can be␣↪False.
 # 4bit pre quantized models we support for 4x faster downloading + no OOMs.
-fourbit_models = [
-"unsloth/mistral-7b-bnb-4bit",
-"unsloth/mistral-7b-instruct-v0.2-bnb-4bit",
-"unsloth/llama-2-7b-bnb-4bit",
-"unsloth/llama-2-13b-bnb-4bit",
-"unsloth/codellama-34b-bnb-4bit",
-"unsloth/tinyllama-bnb-4bit",
-"unsloth/gemma-7b-bnb-4bit", # New Google 6 trillion tokens model 2.5x␣↪faster!
-"unsloth/gemma-2b-bnb-4bit",
-] # More models at https://huggingface.co/unsloth
+# fourbit_models = [
+# "unsloth/mistral-7b-bnb-4bit",
+# "unsloth/mistral-7b-instruct-v0.2-bnb-4bit",
+# "unsloth/llama-2-7b-bnb-4bit",
+# "unsloth/llama-2-13b-bnb-4bit",
+# "unsloth/codellama-34b-bnb-4bit",
+# "unsloth/tinyllama-bnb-4bit",
+# "unsloth/gemma-7b-bnb-4bit", # New Google 6 trillion tokens model 2.5x␣↪faster!
+# "unsloth/gemma-2b-bnb-4bit",
+# ] # More models at https://huggingface.co/unsloth
 # unsloth/codellama-7b-bnb-4bit
 model, tokenizer = FastLanguageModel.from_pretrained(
-model_name = "unsloth/codellama-7b-bnb-4bit", # Choose ANY! eg mistralai/↪Mistral-7B-Instruct-v0.2
-max_seq_length = max_seq_length,
-dtype = dtype,
-load_in_4bit = load_in_4bit,)
+    model_name="unsloth/codellama-7b-bnb-4bit",  # Choose ANY! eg mistralai/↪Mistral-7B-Instruct-v0.2
+    max_seq_length=max_seq_length,
+    dtype=dtype,
+    load_in_4bit=load_in_4bit,
+)
 
 model = FastLanguageModel.get_peft_model(
     model,
-    r = 16, # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
-    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
-                      "gate_proj", "up_proj", "down_proj",],
-    lora_alpha = 16,
-    lora_dropout = 0, # Supports any, but = 0 is optimized
-    bias = "none",    # Supports any, but = "none" is optimized
+    r=16,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+    target_modules=[
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    ],
+    lora_alpha=16,
+    lora_dropout=0,  # Supports any, but = 0 is optimized
+    bias="none",  # Supports any, but = "none" is optimized
     # [NEW] "unsloth" uses 30% less VRAM, fits 2x larger batch sizes!
-    use_gradient_checkpointing = "unsloth", # True or "unsloth" for very long context
-    random_state = 3407,
-    use_rslora = False,  # We support rank stabilized LoRA
-    loftq_config = None, # And LoftQ
+    use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
+    random_state=3407,
+    use_rslora=False,  # We support rank stabilized LoRA
+    loftq_config=None,  # And LoftQ
 )
 
 from datasets import load_dataset, Dataset, DatasetDict
 import json
 
 # loading
-json_file_path = '/content/drive/MyDrive/pretrain_data/Training Trace Dataset.json'
-with open(json_file_path, 'r') as file:
+json_file_path = "./Training Trace Dataset.json"
+with open(json_file_path, "r") as file:
     data = [json.loads(line) for line in file if line.strip()]
 
 # sampling 2% of the data
-data_sample = data[:int(0.02 * len(data))]
+data_sample = data[: int(0.02 * len(data))]
 
 # Transforming list of dictionaries into separate lists for each key
-data_dict = {key: [dic[key] for dic in data_sample if key in dic] for key in data_sample[0]}
+data_dict = {
+    key: [dic[key] for dic in data_sample if key in dic] for key in data_sample[0]
+}
 
 dataset = Dataset.from_dict(data_dict)
+
 
 def format_trace_data(examples):
     # example processing function
     texts = []
-    for src in examples['src_seq']:
+    for src in examples["src_seq"]:
         prompt = f"""<s>[INST] Analyze the C code trace coverage.
 
 ### Instruction:
@@ -102,12 +116,14 @@ Branch Coverage: [Details]
         texts.append(prompt)
     return {"text": texts}
 
+
 # Mapping the formatting function
 dataset = dataset.map(format_trace_data, batched=True)
 
 from transformers import TrainingArguments
 from trl import SFTTrainer
 import os
+
 # import wandb
 
 # Ensure the tokenizer is using the correct pad token
@@ -133,7 +149,7 @@ training_args = TrainingArguments(
     weight_decay=0.01,
     lr_scheduler_type="linear",
     seed=3407,
-    output_dir="/content/drive/MyDrive/model_outputs",
+    output_dir="./model_outputs",
 )
 
 # Set up the trainer
@@ -150,4 +166,3 @@ trainer = SFTTrainer(
 
 # Start training
 trainer_stats = trainer.train()
-
