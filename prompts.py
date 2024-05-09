@@ -17,13 +17,13 @@ Branch Coverage: {}
 
 # GSM8k
 
-EVAL_TEMPLATE = """
-<s> [INST] {}
+EVAL_TEMPLATE = """<s> [INST] {}
 {}
 Q: {}
  [/INST]
 A: {}
- </s>"""
+"""
+#  </s>"""
 
 PREAMBLE = """As an expert problem solver solve step by step the following mathematical questions."""
 
@@ -50,3 +50,39 @@ A: Michael initially had 58 balls. He lost 23 on Tuesday, so after that he has 5
 
 Q: Olivia has $23. She bought five bagels for $3 each. How much money does she have left?
 A: She bought 5 bagels for $3 each. This means she spent 5 * $3 = $15 on the bagels. She had $23 in beginning, so now she has $23 - $15 = $8. The answer is 8."""
+
+PST = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+
+### Instruction:
+Write down all of the state changes that take place after the code snippet is executed.
+
+### Input:
+{}
+ [/INST]
+### Response:
+{}
+ </s>"""
+
+PST = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+
+### Instruction:
+Write down all of the state changes that take place after the code snippet is executed.
+
+### Input:
+{}
+ [/INST]
+### Response:
+{}
+ </s>"""
+
+MISTRAL_EVAL = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+
+### Instruction:
+Write down all of the state changes that take place after the code snippet is executed.
+
+### Input:
+{}
+ [/INST]
+### Response:
+{}
+"""

@@ -1,3 +1,4 @@
+
 import re
 
 TRAIN_TEMPLATE = """<s>[INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
@@ -177,3 +178,4 @@ def prepare_input(p, tokenizer):
 # Function to decode model output
 def decode_output(output_ids, tokenizer):
     return tokenizer.decode(output_ids, skip_special_tokens=True)
+
