@@ -61,6 +61,7 @@ wandb.init(
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=models[model_name],
     max_seq_length=2048,
+    # max_seq_length=4,
     dtype=None,
     load_in_4bit=True,
 )
@@ -108,7 +109,7 @@ def format_pst_data(examples):
     outputs = examples["output"]
     texts = []
     for input, output in zip(inputs, outputs):
-        text = PST.format(input, output)
+        text = PST_PROMPT.format(input, output)
         texts.append(text)
     return {"text": texts}
 
@@ -350,7 +351,7 @@ eval_args = TrainingArguments(
     seed=3407,
     output_dir=f"outputs/eval/{model_name}",
     evaluation_strategy="steps",
-    eval_steps=1,
+    # eval_steps=1,
     do_eval=True,
     eval_accumulation_steps=50,
 )
@@ -358,7 +359,7 @@ eval_args = TrainingArguments(
 train_args = TrainingArguments(
     report_to="wandb",
     per_device_train_batch_size=2,
-    per_device_eval_batch_size=1,
+    per_device_eval_batch_size=2,
     gradient_accumulation_steps=4,
     warmup_steps=5,
     num_train_epochs=1,
@@ -373,9 +374,10 @@ train_args = TrainingArguments(
     seed=3407,
     output_dir=f"outputs/train/{model_name}",
     evaluation_strategy="steps",
-    eval_steps=100,
+    # eval_steps=100,
+    eval_steps=2,
     do_eval=True,
-    eval_accumulation_steps=50,
+    eval_accumulation_steps=4,
 )
 
 trainer = SFTTrainer(
@@ -384,7 +386,7 @@ trainer = SFTTrainer(
     train_dataset=dataset_traced["train"],
     eval_dataset=eval_dataset["test"],
     dataset_text_field="text",
-    max_seq_length=2048,
+    max_seq_length=1024,
     dataset_num_proc=2,
     packing=False,  # Packing setting
     args=eval_args if evaluation_mode else train_args,
