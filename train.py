@@ -15,7 +15,9 @@ import re
 # python train.py -o models/llama7b -m 7bU -u -d datasets/Training\ Trace\ Dataset.json -ev
 
 # custom imports
-from prompts import TRACE_PROMPT, EVAL_TEMPLATE, PREAMBLE, GSM8K_FEW_PROMPT
+from prompts import TRACE_PROMPT, EVAL_TEMPLATE, PREAMBLE, GSM8K_FEW_PROMPT, PST_PROMPT
+
+os.environ["WANDB_MODE"] = "offline"
 
 parser = argparse.ArgumentParser(prog="training")
 parser.add_argument("-m", "--model")
@@ -23,14 +25,18 @@ parser.add_argument("-d", "--data")
 parser.add_argument("-o", "--output")
 parser.add_argument("-u", "--unsloth", action="store_true")
 parser.add_argument("-ev", "--ev", action="store_true")
+parser.add_argument("-traced", "--traced", action="store_true")
+parser.add_argument("-pst", "--pst", action="store_true")
 args = parser.parse_args()
 
-model_save_path, data_path, model_name, unsloth, evaluation_mode = (
+model_save_path, data_path, model_name, unsloth, evaluation_mode, traced, pst = (
     args.output,
     args.data,
     args.model,
     args.unsloth,
     args.ev,
+    args.traced,
+    args.pst,
 )
 
 models = {
@@ -39,14 +45,17 @@ models = {
     "7bUc": "unsloth/llama-2-7b-chat-bnb-4bit",
     "7bU": "unsloth/llama-2-7b-bnb-4bit",
     "13bU": "unsloth/llama-2-13b-bnb-4bit",
+    "7bCodeU": "unsloth/codellama-7b-bnb-4bit",
+    "Mistral7bU": "unsloth/mistral-7b-bnb-4bit",
+    "Mistral7bUInstruct": "unsloth/mistral-7b-bnb-4bit",
 }
 
 wandb.init(
-    project="codemath-v2",
+    project="codemath-FINAL_EVAL",
     config={
         "dataset": f"{data_path}",
     },
-    name=models[model_name],
+    name=f"{models[model_name]}_{'pst' if pst else 'traced'}",
 )
 
 model, tokenizer = FastLanguageModel.from_pretrained(
@@ -90,6 +99,16 @@ def format_trace_data(examples, prompt=TRACE_PROMPT):
         entry_vars, src_seq, value_seq, abstract_seq
     ):
         text = prompt.format(src_seq, entry_vars, abstract_seq, value_seq)
+        texts.append(text)
+    return {"text": texts}
+
+
+def format_pst_data(examples):
+    inputs = examples["input"]
+    outputs = examples["output"]
+    texts = []
+    for input, output in zip(inputs, outputs):
+        text = PST.format(input, output)
         texts.append(text)
     return {"text": texts}
 
@@ -166,6 +185,8 @@ def correct_solution_gsm8k(prediction_str, reference_str):
     """
     # prediction_str = tokenizer.decode(prediction_tokens, skip_special_tokens=True)
     # reference_str = tokenizer.decode(reference_tokens, skip_special_tokens=True)
+
+    print(prediction_str)
 
     gt = re.findall(r"\d+", reference_str.strip().split("\n")[-1].strip())
 
@@ -270,10 +291,12 @@ def custom_metrics_gsm8k(preds):
 
     wandb.log(
         {
+            "gsm8k_train_solve_rate": solve_rate,
             "perplexity": ppl.item(),
             "correct_tokens": correct_tokens.item(),
             "f1": mean_f1,
-            "gsm8k_train_solve_rate": solve_rate,
+            "mean_precision": mean_precision,
+            "mean_recall": mean_recall,
         }
     )
     return {
@@ -290,11 +313,16 @@ def custom_metrics_gsm8k(preds):
 
 
 ## Load Dataset and train ##
-dataset_traced = load_dataset("json", data_files=data_path, split="train")
-dataset_traced = dataset_traced.map(format_trace_data, batched=True).train_test_split(
-    train_size=0.1
-)
-
+if traced:
+    dataset_traced = load_dataset("json", data_files=data_path, split="train")
+    dataset_traced = dataset_traced.map(
+        format_trace_data, batched=True
+    ).train_test_split(train_size=0.05)
+elif pst:
+    dataset_traced = load_dataset("json", data_files=data_path, split="train")
+    dataset_traced = dataset_traced.map(format_pst_data, batched=True).train_test_split(
+        train_size=0.005
+    )
 # dataset_traced = load_dataset("gsm8k", "main", split="train")
 # dataset_traced = dataset_traced.map(format_gsm8k, batched=True).train_test_split(
 #     train_size=0.05
@@ -334,6 +362,7 @@ train_args = TrainingArguments(
     gradient_accumulation_steps=4,
     warmup_steps=5,
     num_train_epochs=1,
+    # max_steps=10,
     learning_rate=2e-4,
     fp16=not torch.cuda.is_bf16_supported(),
     bf16=torch.cuda.is_bf16_supported(),
