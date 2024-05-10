@@ -6,8 +6,6 @@ import torch
 import wandb
 import yaml
 import os
-
-# from src.trainers.configs import H4ArgumentParser
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,7 +106,7 @@ class LMEvalArguments:
     )
     ## save args
     output_path: str = field(
-        default="data/openllm/zephyr-7b-beta",
+        default="",
         metadata={"help": "The output path for the results."},
     )
     log_samples: bool = field(

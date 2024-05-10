@@ -63,15 +63,19 @@ ALL_TASKS = [v["name"] for v in TASKS_WE_USE]
 GEN_TASKS = set([v["name"] for v in TASKS_WE_USE if v["is_gen"]])
 OPENLLM_TASKS = set([v["name"] for v in TASKS_WE_USE if v["in_openllm"]])
 
+"""
+Doc for the args
+-m is the model name. Use this to pass the path to a finetuned model 
+-b pass this to tell it what base model to use (non finetuned)
+-o path to save test results to
+"""
 parser = argparse.ArgumentParser(prog="training")
-parser.add_argument("-m", "--model")
-parser.add_argument("-b", "--base")
-parser.add_argument("-z", "--zero", action="store_true")
-# parser.add_argument("-d", "--data")
+parser.add_argument("-m", "--model", required=False)
+parser.add_argument("-b", "--base", required=False)
 parser.add_argument("-o", "--output")
 args = parser.parse_args()
 
-model_save_path, base, zero_shot, output = args.model, args.base, args.zero, args.output
+model_save_path, base, output = args.model, args.base, args.output
 
 # python eval_lm.py -m t -b 7bUc -o llama_chat_base
 
@@ -184,11 +188,15 @@ def get_performance(all_results, all_tasks):
     ### save this thing
     # path = Path(args.output_path)
     # output_path_file = path.joinpath("performance.json")
-    output_path_file = f"{output}_performance.json"
-    dumped = json.dumps(
-        metrics, indent=2, default=_handle_non_serializable, ensure_ascii=False
-    )
-    output_path_file.open("w", encoding="utf-8").write(dumped)
+    try:
+        output_path_file = Path(f"{output}_performance.json")
+        dumped = json.dumps(
+            metrics, indent=2, default=_handle_non_serializable, ensure_ascii=False
+        )
+        with output_path_file.open("w", encoding="utf-8") as f:
+            f.write(dumped)
+    except:
+        print("error saving")
     return metrics
 
 
