@@ -2,10 +2,22 @@
 
 # Quickstart (For Grading)
 
+Setup to add in missing dirs
+```
+mkdir notebooks/model_save_path
+mkdir notebooks/outputs
+```
+
 After downloading data from Kaggle (below), train the model with
 
 ```
 python3 notebooks/mistral_codemath_4bit.py
+```
+
+after pretraining you can finetune the model with. In big refactor you need to modify the flags at the top to select which model to train, base or pre trained.
+
+```
+python3 notebooks/big_refactor.py
 ```
 
 ## First test

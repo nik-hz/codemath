@@ -51,7 +51,11 @@ A: Michael initially had 58 balls. He lost 23 on Tuesday, so after that he has 5
 Q: Olivia has $23. She bought five bagels for $3 each. How much money does she have left?
 A: She bought 5 bagels for $3 each. This means she spent 5 * $3 = $15 on the bagels. She had $23 in beginning, so now she has $23 - $15 = $8. The answer is 8."""
 
+<<<<<<< HEAD
 PST = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+=======
+PST_PROMPT = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+>>>>>>> 5bafda88e45e60698b7ea637749bb8eae64d613e
 
 ### Instruction:
 Write down all of the state changes that take place after the code snippet is executed.
@@ -61,6 +65,7 @@ Write down all of the state changes that take place after the code snippet is ex
  [/INST]
 ### Response:
 {}
+<<<<<<< HEAD
  </s>"""
 
 PST = """<s> [INST] Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
@@ -86,3 +91,6 @@ Write down all of the state changes that take place after the code snippet is ex
 ### Response:
 {}
 """
+=======
+ </s>"""
+>>>>>>> 5bafda88e45e60698b7ea637749bb8eae64d613e
