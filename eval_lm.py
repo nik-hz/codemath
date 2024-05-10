@@ -26,6 +26,42 @@ from trl import SFTTrainer
 from collections import Counter
 import re
 
+TASKS_WE_USE = [
+    {
+        "name": "gsm8k",
+        "num_shots": 5,
+        "is_gen": True,
+        "in_openllm": True,
+        "metric": "exact_match,strict-match",
+    },
+    {
+        "name": "bbh_cot_fewshot_date_understanding",
+        "num_shots": None,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+    {
+        "name": "bbh_cot_fewshot_movie_recommendation",
+        "num_shots": None,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+    {
+        "name": "bbh_cot_fewshot_reasoning_about_colored_objects",
+        "num_shots": None,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+]
+
+TASK_TO_METRIC = {v["name"]: v["metric"] for v in TASKS_WE_USE}
+TASK_TO_NUM_SHOT = {v["name"]: v["num_shots"] for v in TASKS_WE_USE}
+ALL_TASKS = [v["name"] for v in TASKS_WE_USE]
+GEN_TASKS = set([v["name"] for v in TASKS_WE_USE if v["is_gen"]])
+OPENLLM_TASKS = set([v["name"] for v in TASKS_WE_USE if v["in_openllm"]])
 
 parser = argparse.ArgumentParser(prog="training")
 parser.add_argument("-m", "--model")
@@ -61,11 +97,9 @@ if base:
 
 
 wandb.init(
-    project="codemath-final",
-    config={
-        "dataset": "gsm8k",
-    },
-    name=f"{model_save_path}_zero_{zero_shot}",
+    project="codemath-eval",
+    config={},
+    name=f"{model_save_path}",
 )
 
 
@@ -76,9 +110,10 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_4bit=True,
 )
 
-# tokenizer.pad_token = tokenizer.eos_token
-# tokenizer.pad_token_id = tokenizer.eos_token_id
-# tokenizer.padding_side = "left"
+
+tokenizer.pad_token = tokenizer.eos_token
+tokenizer.pad_token_id = tokenizer.eos_token_id
+tokenizer.padding_side = "left"
 
 task_manager = TaskManager(include_path=None)  # no include path needed
 
@@ -95,27 +130,88 @@ lm = lm_eval.api.registry.get_model(model_name="hf").create_from_arg_string(
     },
 )
 
-results = evaluator.simple_evaluate(
-    model=lm,
-    tasks=[
-        "gsm8k",
-        "bbh_cot_fewshot_date_understanding",
-        "bbh_cot_fewshot_movie_recommendation",
-        "bbh_cot_fewshot_reasoning_about_colored_objects",
-    ],
-    num_fewshot=3,
-    task_manager=task_manager,
-)
+
+class LMEvalArguments:
+    output_path: str
 
 
-# TASKS_WE_USE = [
-#     {'name': 'hellaswag', 'num_shots': 10, 'is_gen': False, 'in_openllm': True, 'metric': 'acc_norm'},
-#     {'name': 'arc_challenge', 'num_shots': 25, 'is_gen': False, 'in_openllm': True, 'metric': 'acc_norm'},
-#     {'name': 'truthfulqa_mc2', 'num_shots': 0, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
-#     {'name': 'winogrande', 'num_shots': 5, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
-#     {'name': 'gsm8k', 'num_shots': 5, 'is_gen': True, 'in_openllm': True, 'metric': 'exact_match,strict-match'},
-#     {'name': 'mmlu', 'num_shots': 5, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
-#     {'name': 'bbh_cot_fewshot_date_understanding', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
-#     {'name': 'bbh_cot_fewshot_movie_recommendation', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
-#     {'name': 'bbh_cot_fewshot_reasoning_about_colored_objects', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'}
-# ]
+def _handle_non_serializable(o):
+    if isinstance(o, np.int64) or isinstance(o, np.int32):
+        return int(o)
+    elif isinstance(o, set):
+        return list(o)
+    else:
+        return str(o)
+
+
+def get_performance(args: LMEvalArguments, all_results, all_tasks):
+    metrics = {}
+    all_averages = []
+    openllm_averages = []
+    classification_average = []
+    generation_average = []
+    for task, task_result in all_results["results"].items():
+        if task in all_tasks:
+            # clean the "acc,none" to "acc"
+            task_result_cleaned = {}
+            for k, v in task_result.items():
+                if k == "alias":
+                    continue
+                k = k.replace(",none", "")
+                task_result_cleaned[k] = v
+
+                # get the average
+                if k != TASK_TO_METRIC[task]:
+                    continue
+                ### now v is the metric of interest
+                all_averages.append(v)
+                # openllm
+                if task in OPENLLM_TASKS:
+                    openllm_averages.append(v)
+                # gen or classification
+                if task in GEN_TASKS:
+                    generation_average.append(v)
+                else:
+                    classification_average.append(v)
+            metrics[task] = task_result_cleaned
+    metrics["openllm_average"] = np.mean(openllm_averages).item()
+    metrics["classification_average"] = np.mean(classification_average).item()
+    metrics["generation_average"] = np.mean(generation_average).item()
+    metrics["all_average"] = np.mean(all_averages).item()
+
+    ### save this thing
+    path = Path(args.output_path)
+    output_path_file = path.joinpath("performance.json")
+    dumped = json.dumps(
+        metrics, indent=2, default=_handle_non_serializable, ensure_ascii=False
+    )
+    output_path_file.open("w", encoding="utf-8").write(dumped)
+    return metrics
+
+
+for task in ALL_TASKS:
+    print(f"Running task {task} with {TASK_TO_NUM_SHOT[task]} shots")
+    results = evaluator.simple_evaluate(
+        model=lm,
+        tasks=[task],
+        # num_fewshot=3,
+        # num_examples=3,
+        task_manager=task_manager,
+    )
+
+    # print the results in prev_results
+    all_tasks = ALL_TASKS
+    performance = get_performance(args, results, all_tasks)
+    print(json.dumps(performance, indent=2, ensure_ascii=False))
+
+    ## upload results
+    # if args.wandb_id != "":
+    # wandb.init(project=args.wandb_project, id=args.wandb_id, resume=True)
+    wandb.init(
+        project="codemath-eval",
+        config={},
+        name=f"{model_save_path}_{task}",
+    )
+    wandb_perf = {f"lm_eval/{k}": v for k, v in performance.items()}
+    wandb.log(wandb_perf)
+    wandb.finish()
