@@ -68,10 +68,12 @@ parser.add_argument("-m", "--model")
 parser.add_argument("-b", "--base")
 parser.add_argument("-z", "--zero", action="store_true")
 # parser.add_argument("-d", "--data")
-# parser.add_argument("-o", "--output")
+parser.add_argument("-o", "--output")
 args = parser.parse_args()
 
-model_save_path, base, zero_shot = args.model, args.base, args.zero
+model_save_path, base, zero_shot, output = args.model, args.base, args.zero, args.output
+
+# python eval_lm.py -m t -b 7bUc -o llama_chat_base
 
 # model_save_path, data_path, model_name, unsloth, evaluation_mode = (
 #     args.output,
@@ -144,7 +146,7 @@ def _handle_non_serializable(o):
         return str(o)
 
 
-def get_performance(args: LMEvalArguments, all_results, all_tasks):
+def get_performance(all_results, all_tasks):
     metrics = {}
     all_averages = []
     openllm_averages = []
@@ -180,8 +182,9 @@ def get_performance(args: LMEvalArguments, all_results, all_tasks):
     metrics["all_average"] = np.mean(all_averages).item()
 
     ### save this thing
-    path = Path(args.output_path)
-    output_path_file = path.joinpath("performance.json")
+    # path = Path(args.output_path)
+    # output_path_file = path.joinpath("performance.json")
+    output_path_file = f"{output}_performance.json"
     dumped = json.dumps(
         metrics, indent=2, default=_handle_non_serializable, ensure_ascii=False
     )
@@ -201,7 +204,8 @@ for task in ALL_TASKS:
 
     # print the results in prev_results
     all_tasks = ALL_TASKS
-    performance = get_performance(args, results, all_tasks)
+
+    performance = get_performance(results, all_tasks)
     print(json.dumps(performance, indent=2, ensure_ascii=False))
 
     ## upload results
