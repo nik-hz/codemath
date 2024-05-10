@@ -6,34 +6,62 @@ import torch
 import wandb
 import yaml
 import os
-from src.trainers.configs import H4ArgumentParser
+
+# from src.trainers.configs import H4ArgumentParser
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from dataclasses import dataclass, field
 from pathlib import Path
 from lm_eval import evaluator
 from lm_eval.tasks import TaskManager
 
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
+from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
+from datasets import load_dataset, Dataset, DatasetDict
+from unsloth import FastLanguageModel
+from trl import SFTTrainer
+from collections import Counter
+import re
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 
 TASKS_WE_USE = [
-    {'name': 'hellaswag', 'num_shots': 10, 'is_gen': False, 'in_openllm': True, 'metric': 'acc_norm'},
-    {'name': 'arc_challenge', 'num_shots': 25, 'is_gen': False, 'in_openllm': True, 'metric': 'acc_norm'},
-    {'name': 'truthfulqa_mc2', 'num_shots': 0, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
-    {'name': 'winogrande', 'num_shots': 5, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
-    {'name': 'gsm8k', 'num_shots': 5, 'is_gen': True, 'in_openllm': True, 'metric': 'exact_match,strict-match'},
-    {'name': 'mmlu', 'num_shots': 5, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
-    {'name': 'bbh_cot_fewshot_date_understanding', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
-    {'name': 'bbh_cot_fewshot_movie_recommendation', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
-    {'name': 'bbh_cot_fewshot_reasoning_about_colored_objects', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'}
+    {
+        "name": "gsm8k",
+        "num_shots": 5,
+        "is_gen": True,
+        "in_openllm": True,
+        "metric": "exact_match,strict-match",
+    },
+    {
+        "name": "bbh_cot_fewshot_date_understanding",
+        "num_shots": None,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+    {
+        "name": "bbh_cot_fewshot_movie_recommendation",
+        "num_shots": None,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+    {
+        "name": "bbh_cot_fewshot_reasoning_about_colored_objects",
+        "num_shots": None,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
 ]
 
-TASK_TO_METRIC = {v['name']: v['metric'] for v in TASKS_WE_USE}
-TASK_TO_NUM_SHOT = {v['name']: v['num_shots'] for v in TASKS_WE_USE}
-ALL_TASKS = [v['name'] for v in TASKS_WE_USE]
-GEN_TASKS = set([v['name'] for v in TASKS_WE_USE if v['is_gen']])
-OPENLLM_TASKS = set([v['name'] for v in TASKS_WE_USE if v['in_openllm']])
+TASK_TO_METRIC = {v["name"]: v["metric"] for v in TASKS_WE_USE}
+TASK_TO_NUM_SHOT = {v["name"]: v["num_shots"] for v in TASKS_WE_USE}
+ALL_TASKS = [v["name"] for v in TASKS_WE_USE]
+GEN_TASKS = set([v["name"] for v in TASKS_WE_USE if v["is_gen"]])
+OPENLLM_TASKS = set([v["name"] for v in TASKS_WE_USE if v["in_openllm"]])
 
 
 @dataclass
@@ -44,7 +72,7 @@ class LMEvalArguments:
         metadata={"help": "The model TYPE"},
     )
     model_name_or_path: str = field(
-        default="HuggingFaceH4/zephyr-7b-beta",
+        default="unsloth/mistral-7b-bnb-4bit",
         metadata={"help": "The model name or path."},
     )
     model_revision: str = field(
@@ -53,7 +81,9 @@ class LMEvalArguments:
     )
     tokenizer_name_or_path: str = field(
         default="",
-        metadata={"help": "In some rare occasion, you may want to manually specify the tokenizer name or path. If empty, set to model_name_or_path."},
+        metadata={
+            "help": "In some rare occasion, you may want to manually specify the tokenizer name or path. If empty, set to model_name_or_path."
+        },
     )
     tokenizer_revision: str = field(
         default="main",
@@ -73,7 +103,7 @@ class LMEvalArguments:
     )
     ## eval args
     batch_size: int = field(
-        default=16,
+        default=8,
         metadata={"help": "The batch size."},
     )
     ## save args
@@ -100,17 +130,20 @@ class LMEvalArguments:
     )
     wandb_id: str = field(
         default="",
-        metadata={"help": "The wandb run id to upload results to. If empty, we will check the model_name_or_path/run_args.yaml"},
+        metadata={
+            "help": "The wandb run id to upload results to. If empty, we will check the model_name_or_path/run_args.yaml"
+        },
     )
 
     def __post_init__(self):
         if self.output_path:
             path = Path(self.output_path)
             # check if file or 'dir/results.json' exists
-            if path.is_file() or Path(self.output_path).joinpath("results.json").is_file():
-                print(
-                    f"File already exists at {path}. Results will be overwritten."
-                )
+            if (
+                path.is_file()
+                or Path(self.output_path).joinpath("results.json").is_file()
+            ):
+                print(f"File already exists at {path}. Results will be overwritten.")
                 assert not path.is_file(), "File already exists"
             # if path json then get parent dir
             elif path.suffix in (".json", ".jsonl"):
@@ -134,12 +167,16 @@ class LMEvalArguments:
 
         if self.to_wandb and self.wandb_id == "":
             path = Path(self.model_name_or_path)
-            assert path.joinpath("run_args.yaml").is_file(), f"File not found at {path.joinpath('run_args.yaml')}"
+            assert path.joinpath(
+                "run_args.yaml"
+            ).is_file(), f"File not found at {path.joinpath('run_args.yaml')}"
             with open(path.joinpath("run_args.yaml"), "r", encoding="utf-8") as fread:
                 all_args = yaml.load(fread, Loader=yaml.Loader)
-            self.wandb_id = all_args['wandb_id']
-            self.wandb_project = all_args['wandb_project']
-            print(f"Read wandb info from {path.joinpath('run_args.yaml')}: {self.wandb_project}/{self.wandb_id}")
+            self.wandb_id = all_args["wandb_id"]
+            self.wandb_project = all_args["wandb_project"]
+            print(
+                f"Read wandb info from {path.joinpath('run_args.yaml')}: {self.wandb_project}/{self.wandb_id}"
+            )
         return
 
 
@@ -152,7 +189,9 @@ def _handle_non_serializable(o):
         return str(o)
 
 
-def save_results(args: LMEvalArguments, new_results: dict, new_tasks: list, prev_results=None):
+def save_results(
+    args: LMEvalArguments, new_results: dict, new_tasks: list, prev_results=None
+):
     # since we are looping over lm_eval.simple_evaluate, we need to update the results manually for this to work
     # new_tasks is the tasks that is ONLY in new_results
     # prev_results is the results from the previous run of simple_evaluate. The goal is to keep the `results` in output_path_file updated
@@ -170,10 +209,10 @@ def save_results(args: LMEvalArguments, new_results: dict, new_tasks: list, prev
                 new_results[k] = old_results
             else:
                 print("skipping", k, old_results)
-    
+
     if args.log_samples:
         samples = new_results.pop("samples")
-    
+
     dumped = json.dumps(
         new_results, indent=2, default=_handle_non_serializable, ensure_ascii=False
     )
@@ -201,12 +240,12 @@ def get_performance(args: LMEvalArguments, all_results, all_tasks):
     openllm_averages = []
     classification_average = []
     generation_average = []
-    for task, task_result in all_results['results'].items():
+    for task, task_result in all_results["results"].items():
         if task in all_tasks:
             # clean the "acc,none" to "acc"
             task_result_cleaned = {}
             for k, v in task_result.items():
-                if k == 'alias':
+                if k == "alias":
                     continue
                 k = k.replace(",none", "")
                 task_result_cleaned[k] = v
@@ -225,11 +264,11 @@ def get_performance(args: LMEvalArguments, all_results, all_tasks):
                 else:
                     classification_average.append(v)
             metrics[task] = task_result_cleaned
-    metrics['openllm_average'] = np.mean(openllm_averages).item()
-    metrics['classification_average'] = np.mean(classification_average).item()
-    metrics['generation_average'] = np.mean(generation_average).item()
-    metrics['all_average'] = np.mean(all_averages).item()
-    
+    metrics["openllm_average"] = np.mean(openllm_averages).item()
+    metrics["classification_average"] = np.mean(classification_average).item()
+    metrics["generation_average"] = np.mean(generation_average).item()
+    metrics["all_average"] = np.mean(all_averages).item()
+
     ### save this thing
     path = Path(args.output_path)
     output_path_file = path.joinpath("performance.json")
@@ -242,41 +281,30 @@ def get_performance(args: LMEvalArguments, all_results, all_tasks):
 
 def main(args: LMEvalArguments):
     print(f"Eval parameters {args}")
-    
+
     # lm_eval.tasks.initialize_tasks(verbosity=args.verbosity)
     task_manager = TaskManager(args.verbosity, include_path=None)
 
     ## manual init
-    if args.attn_implementation is not None:
-        loaded_model = AutoModelForCausalLM.from_pretrained(
-            args.model_name_or_path,
-            attn_implementation=args.attn_implementation,
-            torch_dtype=args.torch_dtype,
-            revision=args.model_revision,
-            trust_remote_code=args.trust_remote_code
-        )
-    else:
-        loaded_model = AutoModelForCausalLM.from_pretrained(
-            args.model_name_or_path,
-            torch_dtype=args.torch_dtype,
-            revision=args.model_revision,
-            trust_remote_code=args.trust_remote_code
-        )
-    loaded_tokenizer = AutoTokenizer.from_pretrained(
-        args.tokenizer_name_or_path,
-        revision=args.tokenizer_revision,
-        trust_remote_code=args.trust_remote_code,
+    loaded_model, loaded_tokenizer = FastLanguageModel.from_pretrained(
+        model_name=args.model_name_or_path,
+        max_seq_length=2048,
+        dtype=None,
+        load_in_4bit=True,
     )
-    if 'stablelm' in loaded_tokenizer.name_or_path:
-        print("Setting pad token id to 100288 assuming you are using StableLM tokenizer")
+
+    if "stablelm" in loaded_tokenizer.name_or_path:
+        print(
+            "Setting pad token id to 100288 assuming you are using StableLM tokenizer"
+        )
         loaded_tokenizer.pad_token_id = 100288
 
     ## move to cuda
-    loaded_model = loaded_model.to('cuda')
+    # loaded_model = loaded_model.to("cuda")
     loaded_model = loaded_model.eval()
 
     lm = lm_eval.api.registry.get_model(args.model).create_from_arg_string(
-        '',
+        "",
         {
             "pretrained": loaded_model,
             "tokenizer": loaded_tokenizer,
@@ -293,20 +321,17 @@ def main(args: LMEvalArguments):
     prev_results = None
     for task in ALL_TASKS:
         print(f"Running task {task} with {TASK_TO_NUM_SHOT[task]} shots")
-        new_results = evaluator.simple_evaluate( # call simple_evaluate
+        new_results = evaluator.simple_evaluate(  # call simple_evaluate
             model=lm,
             tasks=[task],
             batch_size=args.batch_size,
             num_fewshot=TASK_TO_NUM_SHOT[task],
             log_samples=True,
             gen_kwargs=None,
-            task_manager=task_manager
+            task_manager=task_manager,
         )
         prev_results = save_results(
-            args,
-            new_results=new_results,
-            new_tasks=[task],
-            prev_results=prev_results
+            args, new_results=new_results, new_tasks=[task], prev_results=prev_results
         )
     time_taken = time.time() - start_time
 
@@ -315,14 +340,10 @@ def main(args: LMEvalArguments):
     performance = get_performance(args, prev_results, all_tasks)
     print(json.dumps(performance, indent=2, ensure_ascii=False))
     print(f"Time taken: {time_taken} seconds")
-    
+
     ## upload results
-    if args.wandb_id != '':
-        wandb.init(
-            project=args.wandb_project,
-            id=args.wandb_id,
-            resume=True
-        )
+    if args.wandb_id != "":
+        wandb.init(project=args.wandb_project, id=args.wandb_id, resume=True)
         wandb_perf = {f"lm_eval/{k}": v for k, v in performance.items()}
         wandb_perf["lm_eval/time_taken"] = time_taken
         wandb.log(wandb_perf)
@@ -330,8 +351,9 @@ def main(args: LMEvalArguments):
     return
 
 
-if __name__ == '__main__':
-    parser = H4ArgumentParser(LMEvalArguments)
-    args = parser.parse()
-    
+if __name__ == "__main__":
+    # parser = H4ArgumentParser(LMEvalArguments)
+    # args = parser.parse()\
+    args = LMEvalArguments
+
     main(args)
