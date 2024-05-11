@@ -329,10 +329,10 @@ elif pst:
 #     train_size=0.05
 # )
 
-dataset_gsm8k = load_dataset("gsm8k", "main", split="test")
-eval_dataset = dataset_gsm8k.map(format_gsm8k, batched=True).train_test_split(
-    test_size=0.1
-)
+# dataset_gsm8k = load_dataset("gsm8k", "main", split="test")
+# eval_dataset = dataset_gsm8k.map(format_gsm8k, batched=True).train_test_split(
+#     test_size=0.1
+# )
 
 eval_args = TrainingArguments(
     report_to="wandb",
@@ -359,12 +359,12 @@ eval_args = TrainingArguments(
 # might be generating too much stuff
 train_args = TrainingArguments(
     report_to="wandb",
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=2,
+    per_device_train_batch_size=16,
+    # per_device_eval_batch_size=2,
     gradient_accumulation_steps=4,
     warmup_steps=5,
-    num_train_epochs=1,
-    # max_steps=1000,
+    # num_train_epochs=1,
+    max_steps=100,
     learning_rate=2e-4,
     fp16=not torch.cuda.is_bf16_supported(),
     bf16=torch.cuda.is_bf16_supported(),
@@ -374,18 +374,18 @@ train_args = TrainingArguments(
     lr_scheduler_type="constant",
     seed=3407,
     output_dir=f"outputs/train/{model_name}",
-    evaluation_strategy="steps",
-    # eval_steps=100,
-    eval_steps=2,
-    do_eval=False,
-    eval_accumulation_steps=4,
+    # evaluation_strategy="steps",
+    # # eval_steps=100,
+    # # eval_steps=2,
+    # do_eval=False,
+    # eval_accumulation_steps=4,
 )
 
 trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
     train_dataset=dataset_traced["train"],
-    eval_dataset=eval_dataset["test"],
+    # eval_dataset=eval_dataset["test"],
     dataset_text_field="text",
     max_seq_length=1024,
     dataset_num_proc=2,
@@ -394,7 +394,7 @@ trainer = SFTTrainer(
 )
 
 # Train model
-trainer.compute_metrics = custom_metrics_gsm8k
+# trainer.compute_metrics = custom_metrics_gsm8k
 trainer.train()
 
 if not evaluation_mode:

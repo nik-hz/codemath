@@ -26,7 +26,7 @@ from trl import SFTTrainer
 from collections import Counter
 import re
 
-TASKS_WE_USE = [
+TASKS_WE_USE_1 = [
     {
         "name": "gsm8k",
         "num_shots": 5,
@@ -35,33 +35,65 @@ TASKS_WE_USE = [
         "metric": "exact_match,strict-match",
     },
     {
-        "name": "bbh_cot_fewshot_date_understanding",
-        "num_shots": None,
+        "name": "bbh_fewshot_multistep_arithmetic_two",
+        "num_shots": 5,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
     {
-        "name": "bbh_cot_fewshot_movie_recommendation",
-        "num_shots": None,
+        "name": "bbh_fewshot_object_counting",
+        "num_shots": 5,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
     {
-        "name": "bbh_cot_fewshot_reasoning_about_colored_objects",
-        "num_shots": None,
+        "name": "bbh_fewshot_tracking_shuffled_objects_three_objects",
+        "num_shots": 5,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+]
+TASKS_WE_USE_2 = [
+    {
+        "name": "gsm8k",
+        "num_shots": 0,
+        "is_gen": True,
+        "in_openllm": True,
+        "metric": "exact_match,strict-match",
+    },
+    {
+        "name": "bbh_fewshot_multistep_arithmetic_two",
+        "num_shots": 0,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+    {
+        "name": "bbh_fewshot_object_counting",
+        "num_shots": 0,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+    {
+        "name": "bbh_fewshot_tracking_shuffled_objects_three_objects",
+        "num_shots": 0,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
 ]
 
-TASK_TO_METRIC = {v["name"]: v["metric"] for v in TASKS_WE_USE}
-TASK_TO_NUM_SHOT = {v["name"]: v["num_shots"] for v in TASKS_WE_USE}
-ALL_TASKS = [v["name"] for v in TASKS_WE_USE]
-GEN_TASKS = set([v["name"] for v in TASKS_WE_USE if v["is_gen"]])
-OPENLLM_TASKS = set([v["name"] for v in TASKS_WE_USE if v["in_openllm"]])
+TASK_TO_METRIC = {v["name"]: v["metric"] for v in TASKS_WE_USE_1}
+TASK_TO_NUM_SHOT_FIVE = {v["name"]: v["num_shots"] for v in TASKS_WE_USE_1}
+TASK_TO_NUM_SHOT_ZERO = {v["name"]: v["num_shots"] for v in TASKS_WE_USE_2}
+ALL_TASKS_FIVE = [v["name"] for v in TASKS_WE_USE_1]
+ALL_TASKS_ZERO = [v["name"] for v in TASKS_WE_USE_2]
+GEN_TASKS = set([v["name"] for v in TASKS_WE_USE_1 if v["is_gen"]])
+OPENLLM_TASKS = set([v["name"] for v in TASKS_WE_USE_1 if v["in_openllm"]])
 
 """
 Doc for the args
@@ -73,9 +105,10 @@ parser = argparse.ArgumentParser(prog="training")
 parser.add_argument("-m", "--model", required=False)
 parser.add_argument("-b", "--base", required=False)
 parser.add_argument("-o", "--output")
+parser.add_argument("-z", "--zero", required=False, action="store_true")
 args = parser.parse_args()
 
-model_save_path, base, output = args.model, args.base, args.output
+model_save_path, base, output, zero = args.model, args.base, args.output, args.zero
 
 # python eval_lm.py -m t -b 7bUc -o llama_chat_base
 
@@ -102,11 +135,11 @@ if base:
     model_save_path = models[base]
 
 
-wandb.init(
-    project="codemath-eval",
-    config={},
-    name=f"{model_save_path}",
-)
+# wandb.init(
+#     project="codemath-eval",
+#     config={},
+#     name=f"{model_save_path}",
+# )
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
@@ -200,13 +233,25 @@ def get_performance(all_results, all_tasks):
     return metrics
 
 
+if zero:
+    print("using zero versions")
+    ALL_TASKS = ALL_TASKS_ZERO
+    TASK_TO_NUM_SHOT = TASK_TO_NUM_SHOT_ZERO
+else:
+    print("using non zero")
+    ALL_TASKS = ALL_TASKS_FIVE
+    TASK_TO_NUM_SHOT = TASK_TO_NUM_SHOT_FIVE
+
+print(ALL_TASKS)
+print(TASK_TO_NUM_SHOT)
+
+
 for task in ALL_TASKS:
     print(f"Running task {task} with {TASK_TO_NUM_SHOT[task]} shots")
     results = evaluator.simple_evaluate(
         model=lm,
         tasks=[task],
-        # num_fewshot=3,
-        # num_examples=3,
+        limit=250,
         task_manager=task_manager,
     )
 
@@ -220,9 +265,9 @@ for task in ALL_TASKS:
     # if args.wandb_id != "":
     # wandb.init(project=args.wandb_project, id=args.wandb_id, resume=True)
     wandb.init(
-        project="codemath-eval",
+        project="codemath-bbheval-final",
         config={},
-        name=f"{model_save_path}_{task}",
+        name=f"{model_save_path}_{task}_{TASK_TO_NUM_SHOT[task]}_shot",
     )
     wandb_perf = {f"lm_eval/{k}": v for k, v in performance.items()}
     wandb.log(wandb_perf)
