@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser(prog="training")
 parser.add_argument("-m", "--model")
 parser.add_argument("-d", "--data")
 parser.add_argument("-o", "--output")
-parser.add_argument("-u", "--unsloth", action="store_true")
+parser.add_argument("-u", "--unsloth", action="store_true", required=False)
 parser.add_argument("-ev", "--ev", action="store_true")
 parser.add_argument("-traced", "--traced", action="store_true")
 parser.add_argument("-pst", "--pst", action="store_true")
@@ -359,12 +359,12 @@ eval_args = TrainingArguments(
 # might be generating too much stuff
 train_args = TrainingArguments(
     report_to="wandb",
-    per_device_train_batch_size=2,
+    per_device_train_batch_size=8,
     per_device_eval_batch_size=2,
     gradient_accumulation_steps=4,
     warmup_steps=5,
     num_train_epochs=1,
-    # max_steps=10,
+    # max_steps=1000,
     learning_rate=2e-4,
     fp16=not torch.cuda.is_bf16_supported(),
     bf16=torch.cuda.is_bf16_supported(),
@@ -377,7 +377,7 @@ train_args = TrainingArguments(
     evaluation_strategy="steps",
     # eval_steps=100,
     eval_steps=2,
-    do_eval=True,
+    do_eval=False,
     eval_accumulation_steps=4,
 )
 
@@ -402,5 +402,3 @@ if not evaluation_mode:
     tokenizer.save_pretrained(model_save_path)
 
 wandb.finish()
-
-
