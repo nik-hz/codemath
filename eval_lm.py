@@ -55,6 +55,27 @@ TASKS_WE_USE_1 = [
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
+       {
+        "name": "bbh_fewshot_reasoning_about_colored_objects",
+        "num_shots": 5,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    }, 
+        {
+        "name": "bbh_fewshot_temporal_sequences",
+        "num_shots": 5,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+        {
+        "name": "bbh_fewshot_logical_deduction_three_objects",
+        "num_shots": 5,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
 ]
 TASKS_WE_USE_2 = [
     {
@@ -80,6 +101,27 @@ TASKS_WE_USE_2 = [
     },
     {
         "name": "bbh_fewshot_tracking_shuffled_objects_three_objects",
+        "num_shots": 0,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+           {
+        "name": "bbh_fewshot_reasoning_about_colored_objects",
+        "num_shots": 0,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    }, 
+        {
+        "name": "bbh_fewshot_temporal_sequences",
+        "num_shots": 0,
+        "is_gen": True,
+        "in_openllm": False,
+        "metric": "exact_match,get-answer",
+    },
+        {
+        "name": "bbh_fewshot_logical_deduction_three_objects",
         "num_shots": 0,
         "is_gen": True,
         "in_openllm": False,
@@ -251,7 +293,7 @@ for task in ALL_TASKS:
     results = evaluator.simple_evaluate(
         model=lm,
         tasks=[task],
-        limit=250,
+        limit=1,
         task_manager=task_manager,
     )
 
@@ -267,7 +309,7 @@ for task in ALL_TASKS:
     wandb.init(
         project="codemath-bbheval-final",
         config={},
-        name=f"{model_save_path}_{task}_{TASK_TO_NUM_SHOT[task]}_shot",
+        name=f"{model_save_path}_{task}_{'0' if zero else '5'}_shot",
     )
     wandb_perf = {f"lm_eval/{k}": v for k, v in performance.items()}
     wandb.log(wandb_perf)
