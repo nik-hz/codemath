@@ -293,7 +293,7 @@ for task in ALL_TASKS:
     results = evaluator.simple_evaluate(
         model=lm,
         tasks=[task],
-        limit=1,
+        # limit=1,
         task_manager=task_manager,
     )
 
