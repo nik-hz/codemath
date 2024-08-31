@@ -55,21 +55,21 @@ TASKS_WE_USE_1 = [
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
-       {
+    {
         "name": "bbh_fewshot_reasoning_about_colored_objects",
         "num_shots": 5,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
-    }, 
-        {
+    },
+    {
         "name": "bbh_fewshot_temporal_sequences",
         "num_shots": 5,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
-        {
+    {
         "name": "bbh_fewshot_logical_deduction_three_objects",
         "num_shots": 5,
         "is_gen": True,
@@ -106,21 +106,21 @@ TASKS_WE_USE_2 = [
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
-           {
+    {
         "name": "bbh_fewshot_reasoning_about_colored_objects",
         "num_shots": 0,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
-    }, 
-        {
+    },
+    {
         "name": "bbh_fewshot_temporal_sequences",
         "num_shots": 0,
         "is_gen": True,
         "in_openllm": False,
         "metric": "exact_match,get-answer",
     },
-        {
+    {
         "name": "bbh_fewshot_logical_deduction_three_objects",
         "num_shots": 0,
         "is_gen": True,
@@ -287,13 +287,16 @@ else:
 print(ALL_TASKS)
 print(TASK_TO_NUM_SHOT)
 
-
+performances = []
 for task in ALL_TASKS:
-    print(f"Running task {task} with {TASK_TO_NUM_SHOT[task]} shots")
+    num_shot = TASK_TO_NUM_SHOT[task]
+    print(f"Running task {task} with {num_shot} shots")
     results = evaluator.simple_evaluate(
         model=lm,
         tasks=[task],
+        num_fewshot=num_shot,
         # limit=1,
+        # limit=100,
         task_manager=task_manager,
     )
 
@@ -301,7 +304,9 @@ for task in ALL_TASKS:
     all_tasks = ALL_TASKS
 
     performance = get_performance(results, all_tasks)
-    print(json.dumps(performance, indent=2, ensure_ascii=False))
+    dump = json.dumps(performance, indent=2, ensure_ascii=False)
+    print(dump)
+    performances.append(performance)
 
     ## upload results
     # if args.wandb_id != "":
@@ -314,3 +319,10 @@ for task in ALL_TASKS:
     wandb_perf = {f"lm_eval/{k}": v for k, v in performance.items()}
     wandb.log(wandb_perf)
     wandb.finish()
+
+# save results
+# make the dir if it doesn't exist
+os.makedirs(os.path.join(output, base, "zero" if zero else "few"), exist_ok=True)
+path = os.path.join(output, base, "zero" if zero else "few", "results.json")
+with open(path, "w") as f:
+    json.dump(performances, f, indent=2, ensure_ascii=False)
