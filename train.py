@@ -4,11 +4,21 @@ import argparse
 import numpy as np
 import json
 import wandb
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
-from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    TrainingArguments,
+    Trainer,
+    PreTrainedTokenizer,
+)
+from typing import Dict, Sequence
+from copy import deepcopy
+
+# from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 from datasets import load_dataset, Dataset, DatasetDict
-from unsloth import FastLanguageModel
-from trl import SFTTrainer
+
+# from unsloth import FastLanguageModel
+# from trl import SFTTrainer
 from collections import Counter
 import re
 
@@ -16,6 +26,8 @@ import re
 
 # custom imports
 from prompts import TRACE_PROMPT, EVAL_TEMPLATE, PREAMBLE, GSM8K_FEW_PROMPT, PST_PROMPT
+
+downsample_train_size = 100
 
 os.environ["WANDB_MODE"] = "offline"
 
@@ -48,6 +60,7 @@ models = {
     "7bCodeU": "unsloth/codellama-7b-bnb-4bit",
     "Mistral7bU": "unsloth/mistral-7b-bnb-4bit",
     "Mistral7bUInstruct": "unsloth/mistral-7b-bnb-4bit",
+    "gemma": "google/gemma-2-2b-it",
 }
 
 wandb.init(
@@ -57,36 +70,37 @@ wandb.init(
     },
     name=f"{models[model_name]}_{'pst' if pst else 'traced'}",
 )
-
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name=models[model_name],
-    max_seq_length=2048,
-    # max_seq_length=4,
-    dtype=None,
-    load_in_4bit=True,
-)
+# model, tokenizer = FastLanguageModel.from_pretrained(
+#     model_name=models[model_name],
+#     max_seq_length=2048,
+#     # max_seq_length=4,
+#     # dtype=None,
+#     # load_in_4bit=True,
+# )
+model = AutoModelForCausalLM.from_pretrained(models[model_name])
+tokenizer = AutoTokenizer.from_pretrained(models[model_name])
 tokenizer.pad_token = tokenizer.eos_token
 
-model = FastLanguageModel.get_peft_model(
-    model,
-    r=16,  # Configuration for PEFT, adjust as needed
-    target_modules=[
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "o_proj",
-        "gate_proj",
-        "up_proj",
-        "down_proj",
-    ],
-    lora_alpha=16,
-    lora_dropout=0,
-    bias="none",
-    use_gradient_checkpointing=True,
-    random_state=3407,
-    use_rslora=False,
-    loftq_config=None,
-)
+# model = FastLanguageModel.get_peft_model(
+#     model,
+#     r=16,  # Configuration for PEFT, adjust as needed
+#     target_modules=[
+#         "q_proj",
+#         "k_proj",
+#         "v_proj",
+#         "o_proj",
+#         "gate_proj",
+#         "up_proj",
+#         "down_proj",
+#     ],
+#     lora_alpha=16,
+#     lora_dropout=0,
+#     bias="none",
+#     use_gradient_checkpointing=True,
+#     random_state=3407,
+#     use_rslora=False,
+#     loftq_config=None,
+# )
 
 
 # both functions have the eos token appended in the formatte3d prompt
@@ -324,6 +338,10 @@ elif pst:
     dataset_traced = dataset_traced.map(format_pst_data, batched=True).train_test_split(
         train_size=0.005
     )
+
+# downsample
+dataset_traced["train"] = dataset_traced["train"].select(range(downsample_train_size))
+dataset_traced["test"] = dataset_traced["test"].select(range(downsample_train_size))
 # dataset_traced = load_dataset("gsm8k", "main", split="train")
 # dataset_traced = dataset_traced.map(format_gsm8k, batched=True).train_test_split(
 #     train_size=0.05
@@ -334,37 +352,37 @@ elif pst:
 #     test_size=0.1
 # )
 
-eval_args = TrainingArguments(
-    report_to="wandb",
-    per_device_train_batch_size=2,
-    per_device_eval_batch_size=1,
-    gradient_accumulation_steps=4,
-    warmup_steps=5,
-    max_steps=100,
-    learning_rate=0,
-    fp16=not torch.cuda.is_bf16_supported(),
-    bf16=torch.cuda.is_bf16_supported(),
-    logging_steps=10,
-    optim="adamw_8bit",
-    weight_decay=0.01,
-    lr_scheduler_type="constant",
-    seed=3407,
-    output_dir=f"outputs/eval/{model_name}",
-    evaluation_strategy="steps",
-    # eval_steps=1,
-    do_eval=True,
-    eval_accumulation_steps=50,
-)
+# eval_args = TrainingArguments(
+#     report_to="wandb",
+#     per_device_train_batch_size=2,
+#     per_device_eval_batch_size=1,
+#     gradient_accumulation_steps=4,
+#     warmup_steps=5,
+#     max_steps=100,
+#     learning_rate=0,
+#     fp16=not torch.cuda.is_bf16_supported(),
+#     bf16=torch.cuda.is_bf16_supported(),
+#     logging_steps=10,
+#     optim="adamw_8bit",
+#     weight_decay=0.01,
+#     lr_scheduler_type="constant",
+#     seed=3407,
+#     output_dir=f"outputs/eval/{model_name}",
+#     evaluation_strategy="steps",
+#     # eval_steps=1,
+#     do_eval=True,
+#     eval_accumulation_steps=50,
+# )
 
 # might be generating too much stuff
 train_args = TrainingArguments(
     report_to="wandb",
-    per_device_train_batch_size=16,
-    # per_device_eval_batch_size=2,
-    gradient_accumulation_steps=4,
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=2,
+    gradient_accumulation_steps=32,
     warmup_steps=5,
     # num_train_epochs=1,
-    max_steps=100,  #
+    max_steps=downsample_train_size,  #
     learning_rate=2e-4,
     fp16=not torch.cuda.is_bf16_supported(),
     bf16=torch.cuda.is_bf16_supported(),
@@ -381,18 +399,29 @@ train_args = TrainingArguments(
     # eval_accumulation_steps=4,
 )
 
-trainer = SFTTrainer(
+
+def preprocess(examples):
+    return tokenizer(examples["text"], padding=True, truncation=True)
+
+
+batch_encoding = preprocess(dataset_traced["train"])
+batch_dict = {key: value for key, value in batch_encoding.items()}
+# copy input_ids to labels
+batch_dict["labels"] = deepcopy(batch_dict["input_ids"])
+train_ds_tokenized = Dataset.from_dict(batch_dict)
+
+trainer = Trainer(
     model=model,
     tokenizer=tokenizer,
-    train_dataset=dataset_traced["train"],
+    train_dataset=train_ds_tokenized,
     # eval_dataset=eval_dataset["test"],
-    dataset_text_field="text",
-    max_seq_length=1024,
-    dataset_num_proc=2,
-    packing=False,  # Packing setting
-    args=eval_args if evaluation_mode else train_args,
+    # dataset_text_field="text",
+    # max_seq_length=1024,
+    # dataset_num_proc=2,
+    # packing=False,  # Packing setting
+    # args=eval_args if evaluation_mode else train_args,
+    args=train_args,
 )
-
 # Train model
 # trainer.compute_metrics = custom_metrics_gsm8k
 trainer.train()
