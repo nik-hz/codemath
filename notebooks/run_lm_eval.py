@@ -26,7 +26,12 @@ TASKS_WE_USE = [
     {'name': 'mmlu', 'num_shots': 5, 'is_gen': False, 'in_openllm': True, 'metric': 'acc'},
     {'name': 'bbh_cot_fewshot_date_understanding', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
     {'name': 'bbh_cot_fewshot_movie_recommendation', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
-    {'name': 'bbh_cot_fewshot_reasoning_about_colored_objects', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'}
+    {'name': 'bbh_cot_fewshot_reasoning_about_colored_objects', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
+    {'name': 'bbh_cot_fewshot_logical_deduction_three_objects', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
+    {'name': 'bbh_cot_fewshot_temporal_sequences', 'num_shots': None, 'is_gen': True, 'in_openllm': False, 'metric': 'exact_match,get-answer'},
+    {'name': 'bbh_cot_fewshot_logical_deduction_three_objects', 'num_shots': 5, 'is_gen': True, 'in_openllm': True, 'metric': 'exact_match,get-answer'},
+    {'name': 'bbh_cot_fewshot_reasoning_about_colored_objects', 'num_shots': 5, 'is_gen': True, 'in_openllm': True, 'metric': 'exact_match,get-answer'},
+    {'name': 'bbh_cot_fewshot_temporal_sequences', 'num_shots': 5, 'is_gen': True, 'in_openllm': True, 'metric': 'exact_match,get-answer'}
 ]
 
 TASK_TO_METRIC = {v['name']: v['metric'] for v in TASKS_WE_USE}
