@@ -38,44 +38,46 @@ TASKS_WE_USE_1 = [
         "name": "bbh_fewshot_multistep_arithmetic_two",
         "num_shots": 5,
         "is_gen": True,
-        "in_openllm": False,
+        "in_openllm": True,
         "metric": "exact_match,get-answer",
     },
     {
         "name": "bbh_fewshot_object_counting",
         "num_shots": 5,
         "is_gen": True,
-        "in_openllm": False,
+        "in_openllm": True,
         "metric": "exact_match,get-answer",
     },
     {
         "name": "bbh_fewshot_tracking_shuffled_objects_three_objects",
         "num_shots": 5,
         "is_gen": True,
-        "in_openllm": False,
+        "in_openllm": True,
         "metric": "exact_match,get-answer",
     },
     {
         "name": "bbh_fewshot_reasoning_about_colored_objects",
         "num_shots": 5,
         "is_gen": True,
-        "in_openllm": False,
+        "in_openllm": True,
         "metric": "exact_match,get-answer",
     },
     {
         "name": "bbh_fewshot_temporal_sequences",
         "num_shots": 5,
         "is_gen": True,
-        "in_openllm": False,
+        "in_openllm": True,
         "metric": "exact_match,get-answer",
     },
     {
         "name": "bbh_fewshot_logical_deduction_three_objects",
         "num_shots": 5,
         "is_gen": True,
-        "in_openllm": False,
+        "in_openllm": True,
         "metric": "exact_match,get-answer",
     },
+    
+    
 ]
 TASKS_WE_USE_2 = [
     {
